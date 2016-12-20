@@ -1,95 +1,29 @@
 (ns cljfst.core
   (:gen-class))
 
-;; Formally, a finite transducer T is a 6-tuple (Q, Σ, Γ, I, F, δ) such that:
 
-;; Q is a finite set, the set of states;
-;; Σ is a finite set, called the input alphabet;
-;; Γ is a finite set, called the output alphabet;
-;; I is a subset of Q, the set of initial states;
-;; F is a subset of Q, the set of final states; and
-;; δ is a subset of Q x (Σ U {e}) x (Γ U {e}) x Q
-;; p. 37
+(def test-fst
+  {:sigma ["a" "b" "c" "d"]    ;; alphabet
+   :Q [:s0 :s1 :s2 :s3]        ;; all states (not used)
+   :s0 :s0                     ;; initial state (redundant?)
+   :F [:s0 :s1 :s2]            ;; final states
+   :delta {:s0 {"@" {:s0 "@"}  ;; transition matrix
+                "a" {:s0 "a"}
+                "b" {:s0 "b"}
+                "c" {:s1 "c"}
+                "d" {:s0 "d"}}
+           :s1 {"@" {:s0 "@"}
+                "a" {:s2 "a"
+                     :s3 "b"}
+                "b" {:s0 "b"}
+                "c" {:s1 "c"}
+                "d" {:s0 "d"}}
+           :s2 {"@" {:s0 "@"}
+                "a" {:s0 "a"}
+                "b" {:s0 "b"}
+                "c" {:s1 "c"}}
+           :s3 {"d" {:s0 "d"}}}})
 
-;; Sigma: ? @ a b c d
-;; Sfs0:@ -> fs0, a -> fs0, b -> fs0, c -> fs1, d -> fs0.
-;; fs1:@ -> fs0, a -> fs2, b -> fs0, c -> fs1, d -> fs0, <a:b> -> s3.
-;; s3:d -> fs0.
-;; fs2:@ -> fs0, a -> fs0, b -> fs0, c -> fs1.
-
-(def fst1 {:sigma ["a" "b" "c" "d"]
-           :Q [:s0 :s1 :s2 :s3]
-           :s0 :s0
-           :F [:s0 :s1 :s2]
-           :delta {:s0 {"@" {:s0 "@"}
-                        "a" {:s0 "a"}
-                        "b" {:s0 "b"}
-                        "c" {:s1 "c"}
-                        "d" {:s0 "d"}}
-                   :s1 {"@" {:s0 "@"}
-                        "a" {:s2 "a"
-                              :s3 "b"}
-                        "b" {:s0 "b"}
-                        "c" {:s1 "c"}
-                        "d" {:s0 "d"}}
-                   :s2 {"@" {:s0 "@"}
-                        "a" {:s0 "a"}
-                        "b" {:s0 "b"}
-                        "c" {:s1 "c"}}
-                   :s3 {"d" {:s0 "d"}}}
-           })
-
-;; - default start state: :s0
-;; - default start outputs: [""]
-
-;; - input: "cad"
-;; - state: :s0
-;; - outputs: [""]
-;; - get first character "c"
-;; - look up [:s0 "c"] in (:delta fst) to get next-state {:s1 "c"}
-;; - for each [:state "outchr"] in next-state
-;;   - append "outchr" to each string in outputs
-;;     [""] -> ["c"]
-;;   - return (apply-down fst (rest "cad") :state outputs)
-;;     (apply-down fst "ad" :s1 ["c"])
-
-;; - input: "ad"
-;; - state: :s1
-;; - outputs: ["c"]
-;; - get first character "a"
-;; - look up [:s1 "a"] in (:delta fst) to get {:s2 "a" :s3 "b"}
-;; - for each [:state "outchr"] in next-state
-;;   - append "outchr" to each string in outputs
-;;     ["c"] -> ["ca"]
-;;     ["c"] -> ["cb"]
-;;   - return (apply-down fst (rest "ad") :state outputs)
-;;     (apply-down fst "d" :s2 ["ca"])
-;;     (apply-down fst "d" :s3 ["cb"])
-
-;; - input: "d"
-;; - state: :s2
-;; - outputs: ["ca"]
-;; - get first character "d"
-;; - look up [:s2 "d"] in (:delta fst) to get nil
-;; - return []
-
-;; - input: "d"
-;; - state: :s3
-;; - outputs: ["cb"]
-;; - get first character "d"
-;; - look up [:s3 "d"] in (:delta fst) to get {:s0 "d"}
-;; - for each [:state "outchr"] in next-state
-;;   - append "outchr" to each string in outputs
-;;     ["cb"] -> ["cbd"]
-;;   - return (apply-down fst (rest "d") :state outputs)
-;;     (apply-down fst "" :s0 ["cbd"])
-
-;; - input: ""
-;; - state: :s0
-;; - outputs: ["cbd"]
-;; - get first character nil
-;; - check if :s0 is a final state
-;; - it is, so return outputs ["cbd"]
 
 (defn apply-down
   "Perform the apply down transformation on string `input` using the FST `fst`"
@@ -112,7 +46,7 @@
                              (rest input)
                              next-state
                              (map
-                               #(str % next-char)
+                               #(str % (get {"@" inpchr} next-char next-char))
                                outputs)))
                          next-states))
             []))
@@ -120,6 +54,70 @@
           outputs
           [])))))
 
+
+(defn states-syms-att
+  "Input: len-4 vect or from AT&T line; output: vector of keywords (states) and
+  strings (FST symbols)"
+  [fields]
+  (map-indexed
+    (fn [idx itm]
+      (if (< idx 2)
+        (keyword (str "s" itm))
+        (if (= itm "@_IDENTITY_SYMBOL_@")
+          "@"
+          (if (= itm "@0@")
+            ""
+            itm))))
+    fields))
+
+
+(defn process-line-att [line]
+  "Process AT&T FST line: 4 tab-separated vals means input state, output state,
+  input symbol, output symbol. One value means final state"
+  (let [fields (clojure.string/split line #"\t")]
+    (if (> (count fields) 3)
+      (let [[st-i st-o sym-i sym-o] (states-syms-att fields)]
+        {:delta-key [:delta st-i sym-i st-o]
+         :delta-val sym-o
+         :sigma [sym-i sym-o]})
+      {:F [(keyword (str "s" (first fields)))]})))
+
+
+(defn add-att-line-to-fst
+  "Return a new `fst` hash built by updating the passed-in one with the AT&T
+  line"
+  [fst line]
+  (let [p-l (process-line-att line)]
+    (assoc
+      (assoc
+        (assoc-in
+          fst
+          (get p-l :delta-key [:delta])
+          (get p-l :delta-val (:delta fst)))
+        :sigma
+        (into [] (set (into (:sigma fst) (get p-l :sigma [])))))
+      :F
+      (into [] (set (into (:F fst) (get p-l :F [])))))))
+
+
+(defn parse-att
+  "Parse AT&T-formatted FST file at `file-path` and return an FST hash map."
+  [file-path]
+  (with-open [rdr (clojure.java.io/reader file-path)]
+    (reduce
+      add-att-line-to-fst
+      {:sigma []  ;; alphabet
+       :Q []  ;; all states
+       :s0 :s0  ;; designated start state
+       :F []  ;; final states
+       :delta {}  ;; maps st-i -> sym-i -> st-o -> sym-o
+      }
+      (line-seq rdr))))
+
+
 (defn -main
+  "Provide an AT&T-formatted FST path and an input string and behold the
+  apply-down-ness!"
   [& args]
-  (println (apply-down fst1 (first args))))
+  (println (apply-down (parse-att (first args)) (second args)))
+)
