@@ -1,0 +1,52 @@
+regex-stmt = regex-cmd <#"\s*"> regex <#"\s*"> stmt-trmntr
+
+regex-cmd = "regex"
+
+<all-symbols> = #"[a-zA-Z]"
+
+union-operator = "|"
+concatenation-operator = " "
+intersection-operator = "&"
+complement-operator = "~"
+other-complement = "\\"
+
+word-edge = ".#."
+
+kleene-star = "*"
+kleene-plus = "+"
+wildcard = "?"
+
+escape-quote = "\""
+escape-prefix = "%"
+
+<cross-product> = <":">
+composition = ".o."
+rewrite = "->"
+nil-symbol = "0"
+
+<left-grouping-bracket> = <"[">
+<right-grouping-bracket> = <"]">
+
+left-optional-bracket = "("
+right-optional-bracket = ")"
+
+<symbol> = nil-symbol | wildcard | all-symbols+
+
+concatenation = regex <concatenation-operator> regex
+union = regex union-operator regex
+<grouping> = left-grouping-bracket regex right-grouping-bracket
+mapping = symbol cross-product symbol |
+          grouping cross-product grouping |
+          regex cross-product regex
+kleene-star-repetition = regex kleene-star
+kleene-plus-repetition = regex kleene-plus
+
+<regex> = symbol |
+        grouping |
+        union |
+        concatenation |
+        kleene-star-repetition |
+        kleene-plus-repetition |
+        mapping
+
+stmt-trmntr = ";"

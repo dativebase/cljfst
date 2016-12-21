@@ -1,5 +1,8 @@
 (ns cljfst.core
-  (:gen-class))
+  (:gen-class)
+  (:require clojure.pprint)
+  (:require [instaparse.core :as insta]))
+
 
 
 (def test-fst
@@ -115,9 +118,14 @@
       (line-seq rdr))))
 
 
+(def regex-stmt
+  (insta/parser (clojure.java.io/resource "grammar.bnf")))
+
+
 (defn -main
   "Provide an AT&T-formatted FST path and an input string and behold the
   apply-down-ness!"
   [& args]
-  (println (apply-down (parse-att (first args)) (second args)))
+  (clojure.pprint/pprint (regex-stmt (first args)))
+  ;; (println (apply-down (parse-att (first args)) (second args)))
 )
