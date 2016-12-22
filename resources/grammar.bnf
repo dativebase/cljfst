@@ -22,7 +22,7 @@ escape-prefix = "%"
 <cross-product> = <":">
 composition = ".o."
 rewrite = "->"
-nil-symbol = "0"
+<nil-symbol> = "0"
 
 <left-grouping-bracket> = <"[">
 <right-grouping-bracket> = <"]">
@@ -33,12 +33,12 @@ right-optional-bracket = ")"
 <symbol> = nil-symbol | wildcard | all-symbols+
 
 concatenation = regex <concatenation-operator> regex
-union = regex union-operator regex
+union = regex <union-operator> regex
 <grouping> = left-grouping-bracket regex right-grouping-bracket
 mapping = symbol cross-product symbol |
           grouping cross-product grouping |
           regex cross-product regex
-kleene-star-repetition = regex kleene-star
+kleene-star-repetition = regex <kleene-star>
 kleene-plus-repetition = regex kleene-plus
 
 <regex> = symbol |
