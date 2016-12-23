@@ -28,6 +28,10 @@
            [:s2 "c" :s1 "c"]
            [:s3 "d" :s0 "d"]]})
 
+(def unknown-symbol "@_UNKNOWN_SYMBOL_@")
+(def epsilon-symbol "@0@")
+(def identity-symbol "@_IDENTITY_SYMBOL_@")
+
 (defn get-transitions
   "Return a seq of out-state/out-symbol pairs for the given in-state/in-symbol
   pair in the given fst"
@@ -115,9 +119,10 @@
       (line-seq rdr))))
 
 
-(def regex-stmt
+;; The parser is defined in resources/grammar.bn. It is a CFG defined via the
+;; context-free rewrite rules and Clojure library instaparse.
+(def read-regex
   (insta/parser (clojure.java.io/resource "grammar.bnf")))
-
 
 (defn state-to-int
   "Convert an FST state keyword (like :s1) to an integer (like 1)"
@@ -134,14 +139,30 @@
   [state-keyword]
   (int-to-state (inc (state-to-int state-keyword))))
 
+(defn sigma-from-mapping
+  [sym-i sym-o]
+  (if (some #{unknown-symbol} [sym-i sym-o])
+    (into [] (set [sym-i sym-o identity-symbol]))
+    (into [] (set [sym-i sym-o]))))
+
+(defn delta-from-mapping
+  [sym-i sym-o]
+  (cond
+    (= sym-o unknown-symbol) [[:s0 sym-i :s1 sym-o] [:s0 sym-i :s1 sym-i]]
+    (= sym-i unknown-symbol) [[:s0 sym-i :s1 sym-o] [:s0 sym-o :s1 sym-o]]
+    :else [[:s0 sym-i :s1 sym-o]]))
+
 (defn create-mapping
-  "Create a simple FST that maps symbol `left` to symbol `right`"
-  [[left right]]
-  {:sigma (into [] (set [left right]))
-   :Q [:s0 :s1]
-   :s0 :s0
-   :F [:s1]
-   :delta [[:s0 left :s1 right]]})
+  "Create a simple FST that maps symbol `sym-i` to symbol `sym-o`"
+  ([sym] (create-mapping sym sym))
+  ([sym-i sym-o]
+    (let [sigma (sigma-from-mapping sym-i sym-o)
+          delta (delta-from-mapping sym-i sym-o)]
+      {:sigma sigma
+      :Q [:s0 :s1]
+      :s0 :s0
+      :F [:s1]
+      :delta delta})))
 
 (defn get-unique-states
   "Return a hash map mapping states in target-states to states not in
@@ -272,6 +293,15 @@
                                  [prev-final-state "0" :s0 "0"])
                                prev-final-states)))}))
 
+(defn process-regex-symbol
+  [[symbol-parse]]
+  ;; (println "SYMBOL PARSE" symbol-parse)
+  (cond
+    (= :atomic-symbol (first symbol-parse)) (second symbol-parse)
+    (= :wildcard (first symbol-parse)) unknown-symbol
+    (= :nil-symbol (first symbol-parse)) epsilon-symbol
+    (= :identity-symbol (first symbol-parse)) identity-symbol))
+
 (defn regex-to-fst
   "Convert the regular expression `regex` to an FST (hash)"
   [fst regex]
@@ -281,8 +311,9 @@
   (cond
     (= :regex-stmt regex) fst
     (some #{(first regex)} #{:regex-cmd :stmt-trmntr}) fst
+    (= :symbol (first regex)) (process-regex-symbol (rest regex))
     (string? regex) (regex-to-fst {} [:mapping regex regex])
-    (= :mapping (first regex)) (create-mapping (rest regex))
+    (= :mapping (first regex)) (apply create-mapping (map #(regex-to-fst {} %) (rest regex)))
     (= :concatenation (first regex)) (concatenate (map #(regex-to-fst {} %) (rest regex)))
     (= :union (first regex)) (perform-union (map #(regex-to-fst {} %) (rest regex)))
     (= :kleene-star-repetition (first regex)) (kleene-star-repeat (regex-to-fst {} (second regex)))
@@ -299,11 +330,96 @@
     {}
     parse))
 
+;; Notes
+;; - a @:@ transition signifies any identity pair not in the currently declared
+;;   alphabet
+;; - the ?-symbol on one side of a symbol pair signifies any symbol also not in
+;;   the alphabet
+;; - the combination ?:? is reserved for the non-identity relation of any
+;;   symbol pair where each symbol is outside the alphabet.
+
+(defn merge-alphabet
+  [cont-vec [fst N]]
+  (into cont-vec [[fst N]]))
+
+
+(defn merge-alphabets
+  "Merge the alphabets of two fsts. Takes two fsts and returns them, with
+  modified alphabets."
+  [fst1 fst2]
+  (let [N-1 (filter (fn [x] (not (some #{x} (:sigma fst1)))) (:sigma fst2))
+        N-2 (filter (fn [x] (not (some #{x} (:sigma fst2)))) (:sigma fst1))]
+    (reduce
+      merge-alphabet
+      []
+      [[fst1 N-1] [fst2 N-2]])))
+
+(defn incoming-transition
+  "Return true if you can use `symbol` to transition into one of the states in
+  `states` using `transition`."
+  [transition symbol states]
+  (println "DEBUG incoming transition")
+  (if (and (= symbol (second transition))
+           (some #{(nth transition 2)} states))
+    true
+    false))
+
+(defn fewest-incoming-transitions
+  "Return whichever of final-states or non-final-states has the fewest incoming
+  transitions to symbol, given delta."
+  [delta symbol final-states non-final-states]
+  (println "DEBUG fewest-incoming-transitions")
+  (let [into-final (filter
+                     (fn [x] (incoming-transition x symbol final-states)) delta)
+        into-non-final (filter
+                         (fn [x] (incoming-transition x symbol non-final-states))
+                         delta)]
+    (println "into-final")
+    (println into-final)
+    (if (< (count into-final) (count into-non-final))
+      final-states
+      non-final-states)))
+
+(defn get-hcc-agenda
+  "Return Hopcroft canonical agenda: for each symbol in sigma, return
+  final-states or non-final-states, depending on which has fewer incoming
+  transitions for that symbol"
+  [final-states non-final-states sigma delta]
+  (println "DEBUG get-hcc-agenda")
+  (reduce
+    (fn [container symbol]
+      (conj container
+            [(fewest-incoming-transitions delta symbol final-states
+                                         non-final-states)
+             symbol]))
+    []
+    sigma))
+
+(defn hopcroft-canonical-minimization
+  "Perform Hopcroft canonical minimization on `fst`, cf. Hulden p. 80"
+  [fst]
+  (println "DEBUG hopcroft")
+  (let [final-states (:F fst)
+        non-final-states (into []
+                               (clojure.set/difference
+                                 (set (:Q fst))
+                                 (set final-states)))
+        Pi [final-states non-final-states]
+        hcc-agenda (get-hcc-agenda final-states non-final-states (:sigma fst)
+                                   (:delta fst))]
+    (println "final-states:")
+    (println final-states)
+    (println "non-final-states:")
+    (println non-final-states)
+    (println "returning hcc-agenda:")
+    hcc-agenda))
+
 (defn -main
   "Provide an AT&T-formatted FST path and an input string and behold the
   apply-down-ness!"
   [& args]
-  (let [parse (regex-stmt (first args))
+  (let [input-regex (first args)
+        parse (read-regex input-regex)
         fst (parse-to-fst parse)]
     (clojure.pprint/pprint parse)
     (clojure.pprint/pprint fst)

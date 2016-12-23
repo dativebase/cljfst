@@ -1,8 +1,62 @@
 regex-stmt = regex-cmd <#"\s*"> regex <#"\s*"> stmt-trmntr
 
-regex-cmd = "regex"
+reserved-symbols = (
+  "!" |
+  "\"" |
+  "#" |
+  "$" |
+  "%" |
+  "&" |
+  "(" |
+  ")" |
+  "*" |
+  "+" |
+  "," |
+  "-" |
+  "." |
+  "/" |
+  "0" |
+  ":" |
+  ";" |
+  "<" |
+  ">" |
+  "?" |
+  "[" |
+  "\\" |
+  "]" |
+  "^" |
+  "_" |
+  "`" |
+  "{" |
+  "|" |
+  "}" |
+  "~" |
+  "¬" |
+  "¹" |
+  "×" |
+  "Σ" |
+  "ε" |
+  "⁻" |
+  "₁" |
+  "₂" |
+  "→" |
+  "↔" |
+  "∀" |
+  "∃" |
+  "∅" |
+  "∈" |
+  "∘" |
+  "∥" |
+  "∧" |
+  "∨" |
+  "∩" |
+  "∪" |
+  "≤" |
+  "≥" |
+  "≺" |
+  "≻" )
 
-<all-symbols> = #"[a-zA-Z]"
+regex-cmd = "regex"
 
 union-operator = "|"
 concatenation-operator = " "
@@ -15,6 +69,7 @@ word-edge = ".#."
 kleene-star = "*"
 kleene-plus = "+"
 wildcard = "?"
+identity-symbol = "@"
 
 escape-quote = "\""
 escape-prefix = "%"
@@ -30,12 +85,23 @@ rewrite = "->"
 left-optional-bracket = "("
 right-optional-bracket = ")"
 
-<symbol> = nil-symbol | wildcard | all-symbols+
+<all-symbols> = #"[a-zA-Z]"
+multi-char-symbol = #"." #"."+
+atomic-symbol = #"."
+
+symbol = (
+    multi-char-symbol |
+    atomic-symbol |
+    nil-symbol |
+    wildcard |
+    identity-symbol
+)
 
 concatenation = regex <concatenation-operator> regex
 union = regex <union-operator> regex
 <grouping> = left-grouping-bracket regex right-grouping-bracket
-mapping = symbol cross-product symbol |
+mapping = symbol |
+          symbol cross-product symbol |
           grouping cross-product grouping |
           regex cross-product regex
 kleene-star-repetition = regex <kleene-star>
