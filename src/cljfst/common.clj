@@ -1,5 +1,10 @@
 (ns cljfst.common
-  (:gen-class))
+  (:gen-class)
+  (:require [clojure.set :refer [union]]))
+
+(def epsilon-symbol "@0@")
+(def unknown-symbol "@_UNKNOWN_SYMBOL_@")
+(def identity-symbol "@_IDENTITY_SYMBOL_@")
 
 (defn cart [colls]
   "Return the cartesian product of the collections in `colls`."
@@ -8,6 +13,12 @@
     (for [x (first colls)
           more (cart (rest colls))]
       (cons x more))))
+
+(defn powerset [ls]
+  "Return the powerset of the set `ls`."
+  (if (empty? ls) #{#{}}
+    (union (powerset (next ls))
+           (map #(conj % (first ls)) (powerset (next ls))))))
 
 (defn state-to-int
   "Convert an FST state keyword (like :s1) to an integer (like 1)"

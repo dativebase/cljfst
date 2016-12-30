@@ -4,9 +4,13 @@
             [clojure.set]
             [clojure.string]
             [cljfst.minimize :refer [minimize-hcc]]
+            [cljfst.determinize :refer [determinize]]
             [cljfst.common :refer [state-to-int
                                    int-to-state
-                                   inc-state]]
+                                   inc-state
+                                   epsilon-symbol
+                                   unknown-symbol
+                                   identity-symbol]]
             [instaparse.core :as insta]))
 
 (def test-fst
@@ -31,17 +35,13 @@
            [:s2 "c" :s1 "c"]
            [:s3 "d" :s0 "d"]]})
 
-(def unknown-symbol "@_UNKNOWN_SYMBOL_@")
-(def epsilon-symbol "@0@")
-(def identity-symbol "@_IDENTITY_SYMBOL_@")
-
 (defn get-transitions
   "Return a seq of out-state/out-symbol pairs for the given in-state/in-symbol
   pair in the given fst"
   [fst in-st in-sym]
   (filter
     #(and (= in-st (first %))
-          (or (= "0" (second %)) (= in-sym (second %))))
+          (or (= epsilon-symbol (second %)) (= in-sym (second %))))
     (:delta fst)))
 
 (defn apply-down
@@ -61,10 +61,10 @@
                             [[curr-state curr-sym next-state next-char]]
                             (apply-down
                               fst
-                              (if (= "0" curr-sym) input (apply str (rest input)))
+                              (if (= epsilon-symbol curr-sym) input (apply str (rest input)))
                               next-state
                               (map
-                                #(str % (get {"@" inpchr "0" ""} next-char next-char))
+                                #(str % (get {"@" inpchr epsilon-symbol ""} next-char next-char))
                                 outputs)))
                           transitions)))))))
 
@@ -210,7 +210,11 @@
           (assoc
             (reduce
               (fn [fst final-state]
-                (assoc fst :delta (conj (:delta fst) [final-state "0" (:s0 fst) "0"])))
+                (assoc fst
+                       :delta
+                       (conj (:delta fst)
+                             [final-state epsilon-symbol (:s0 fst)
+                              epsilon-symbol])))
               fst2-no-confl
               (:F fst1))
             :s0
@@ -258,7 +262,8 @@
                              (:delta fst2)
                              (map
                                (fn [prev-init-st]
-                                 [:s0 "0" prev-init-st "0"])
+                                 [:s0 epsilon-symbol prev-init-st
+                                  epsilon-symbol])
                                [(:s0 fst1) (:s0 fst2)]))))}))
 
 (defn kleene-star-repeat
@@ -275,10 +280,10 @@
      :s0 :s0
      :F [:s0]
      :delta (concat (:delta tmp-fst)
-                    [[:s0 "0" :s1 "0"]]
+                    [[:s0 epsilon-symbol :s1 epsilon-symbol]]
                     (into []
                           (map (fn [prev-final-state]
-                                 [prev-final-state "0" :s0 "0"])
+                                 [prev-final-state epsilon-symbol :s0 epsilon-symbol])
                                prev-final-states)))}))
 
 (defn process-regex-symbol

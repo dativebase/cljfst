@@ -2,10 +2,13 @@
   (:require [clojure.test :refer :all]
             [clojure.pprint :refer [pprint]]
             [cljfst.core :refer :all]
+            [cljfst.common :refer [powerset]]
             [cljfst.minimize :refer [minimize-hcc
                                      hopcroft-canonical-equiv-classes
                                      hopcroft-optimized-equiv-classes]]
-            [cljfst.determinize :refer [determinize E powerset]]))
+            [cljfst.determinize :refer [determinize
+                                        E
+                                        subset-construction]]))
 
 (def test-fst-1
   {:sigma ["a" "b"],
@@ -270,14 +273,34 @@
   (testing "`(determinize non-deterministic-fst)` works"
     (let [determinized-fst (determinize non-deterministic-fst)
           det-delta (:delta determinized-fst)]
-      (pprint determinized-fst)
+      ;;(println "determinize:")
+      ;;(pprint determinized-fst)
+      ;;(println "\n")
       (is (= expected-determinized-fst determinized-fst)))))
 
 ;; regex a:b c:d ;
 (deftest test-fst-atomic
-  (testing "\"regex a:b ;\" produces the correct fst"
+  (testing "\"regex a:b c:d ;\" produces the correct fst"
     (let [regex-cmd "regex a:b c:d ;"
           parse (read-regex regex-cmd)
-          fst (parse-to-fst parse)]
+          fst (parse-to-fst parse)
+          determinized-fst (subset-construction fst)]
+
+      (println "FST for `a:b c:d`")
       (pprint fst)
+      (println "determinized FST for `a:b c:d`")
+      (pprint determinized-fst)
+      (println "\n")
+      (println (first (apply-down fst "ac")))
+      (println (first (apply-down determinized-fst "ac")))
+
     )))
+
+(deftest test-subset-construction
+  (testing "`(subset-construction non-deterministic-fst)` works"
+    (let [determinized-fst (subset-construction non-deterministic-fst)
+          det-delta (:delta determinized-fst)]
+      ;; (println "subset-construction:")
+      ;; (pprint determinized-fst)
+      ;; (println "\n")
+)))
