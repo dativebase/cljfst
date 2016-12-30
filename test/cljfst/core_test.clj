@@ -1,6 +1,11 @@
 (ns cljfst.core-test
   (:require [clojure.test :refer :all]
-            [cljfst.core :refer :all]))
+            [clojure.pprint :refer [pprint]]
+            [cljfst.core :refer :all]
+            [cljfst.minimize :refer [minimize-hcc
+                                     hopcroft-canonical-equiv-classes
+                                     hopcroft-optimized-equiv-classes]]
+            [cljfst.determinize :refer [determinize E powerset]]))
 
 (def test-fst-1
   {:sigma ["a" "b"],
@@ -37,11 +42,12 @@
     (let [regex-cmd "regex a:b ;"
           parse (read-regex regex-cmd)
           fst (parse-to-fst parse)]
-      ;; (clojure.pprint/pprint (read-regex regex-cmd))
+      ;; (pprint (read-regex regex-cmd))
       (is (= #{"a" "b"} (set (:sigma fst))))
       (is (= #{[:s0 "a" :s1 "b"]} (set (:delta fst))))
       (is (= :s0 (:s0 fst)))
       (is (= [:s1] (:F fst)))
+      ;; (pprint fst)
     )))
 
 ;; regex a:? ;
@@ -150,8 +156,8 @@
     (let [regex-cmd "regex a b ;"
           parse (read-regex regex-cmd)
           fst (parse-to-fst parse)]
-      ;; (clojure.pprint/pprint parse)
-      ;; (clojure.pprint/pprint fst)
+      ;; (pprint parse)
+      ;; (pprint fst)
       (is (= #{"a" "b"} (set (:sigma fst))))
       ;; Note: the following tests on the FST will fail because my FST compiler
       ;; does not yet minimize...
@@ -185,8 +191,6 @@
     (let [equiv-classes (hopcroft-canonical-equiv-classes non-minimized-fst)]
       (is (= #{[:s4] [:s3] [:s1] [:s0 :s2]} (set equiv-classes))))))
 
-(clojure.pprint/pprint (minimize-hcc non-minimized-fst))
-
 ;; When minimized, all instances of :s2 in `non-minimized-fst` should be
 ;; replaced with :s0
 (deftest test-hopcroft-canonical-minimization
@@ -204,3 +208,76 @@
       (is (= #{:s0 :s1 :s3 :s4} (set (:Q minimized-fst))))
       (is (= [:s4] (:F minimized-fst)))
       (is (= expected-delta (set (:delta minimized-fst)))))))
+
+
+;; NFA (from Dave Bacon UW slides)
+(def non-deterministic-fst
+  {:sigma ["0" "1"],
+   :Q [:s1 :s2 :s3],
+   :s0 :s1,
+   :F [:s1],
+   :delta [[:s1 "@0@" :s2 "@0@"]
+           [:s1 "0" :s3 "0"]
+           [:s2 "1" :s1 "1"]
+           [:s2 "1" :s3 "1"]
+           [:s3 "0" :s1 "0"]]})
+
+(def intermediate-delta
+  [[#{:s1 :s2} "0" #{:s3} "0"]
+   [#{:s1 :s2} "1" #{:s1 :s3} "1"]
+   [#{} "0" #{} "0"]
+   [#{} "1" #{} "1"]
+   [#{:s2} "0" #{} "0"]
+   [#{:s2} "1" #{:s1 :s3} "1"]
+   [#{:s3} "0" #{:s1} "0"]
+   [#{:s3} "1" #{} "1"]
+   [#{:s3 :s2} "0" #{:s1} "0"]
+   [#{:s3 :s2} "1" #{:s1 :s3} "1"]
+   [#{:s1 :s3} "0" #{:s1 :s3} "0"]
+   [#{:s1 :s3} "1" #{} "1"]
+   [#{:s1 :s3 :s2} "0" #{:s1 :s3} "0"]
+   [#{:s1 :s3 :s2} "1" #{:s1 :s3} "1"]
+   [#{:s1} "0" #{:s3} "0"]
+   [#{:s1} "1" #{} "1"]])
+
+(deftest test-E
+  (testing "`(E)` works as expected"
+    (let [my-E (fn [state-set] (E state-set non-deterministic-fst))]
+      (is (= (my-E #{}) #{}))
+      (is (= #{:s1 :s2} (set (my-E [:s1]))))
+      (is (= #{:s2} (set (my-E '(:s2)))))
+      (is (= #{:s3} (set (my-E '(:s3)))))
+      (is (= #{:s1 :s2} (set (my-E '(:s1 :s2)))))
+      (is (= #{:s1 :s2 :s3} (set (my-E '(:s1 :s3)))))
+      (is (= #{:s2 :s3} (set (my-E '(:s2 :s3)))))
+      (is (= #{:s1 :s2 :s3} (set (my-E '(:s1 :s2 :s3))))))))
+
+(def expected-determinized-fst
+  {:sigma ["0" "1"],
+   :Q #{:s0 :s1 :s3 :s2},
+   :s0 :s0,
+   :F #{:s0 :s3},
+   :delta #{[:s0 "0" :s2 "0"]
+            [:s0 "1" :s3 "1"]
+            [:s1 "0" :s1 "0"]
+            [:s1 "1" :s1 "1"]
+            [:s2 "0" :s0 "0"]
+            [:s2 "1" :s1 "1"]
+            [:s3 "0" :s3 "0"]
+            [:s3 "1" :s3 "1"]}})
+
+(deftest test-determinize
+  (testing "`(determinize non-deterministic-fst)` works"
+    (let [determinized-fst (determinize non-deterministic-fst)
+          det-delta (:delta determinized-fst)]
+      (pprint determinized-fst)
+      (is (= expected-determinized-fst determinized-fst)))))
+
+;; regex a:b c:d ;
+(deftest test-fst-atomic
+  (testing "\"regex a:b ;\" produces the correct fst"
+    (let [regex-cmd "regex a:b c:d ;"
+          parse (read-regex regex-cmd)
+          fst (parse-to-fst parse)]
+      (pprint fst)
+    )))
