@@ -2,7 +2,10 @@
   (:require [clojure.test :refer :all]
             [clojure.pprint :refer [pprint]]
             [cljfst.core :refer :all]
-            [cljfst.common :refer [powerset]]
+            [cljfst.common :refer [powerset
+                                   unknown-symbol
+                                   identity-symbol
+                                   epsilon-symbol]]
             [cljfst.minimize :refer [minimize-hcc
                                      hopcroft-canonical-equiv-classes
                                      hopcroft-optimized-equiv-classes]]
@@ -10,23 +13,45 @@
                                         E
                                         subset-construction]]))
 
+(def test-fst
+  {:sigma #{"a" "b" "c" "d"}   ;; alphabet
+   :Q #{:s0 :s1 :s2 :s3}       ;; all states
+   :s0 :s0                     ;; initial state
+   :F #{:s0 :s1 :s2}           ;; final states
+   :delta #{[:s0 "@" :s0 "@"]  ;; transition matrix: read 1 in 0, write 3, move
+            [:s0 "a" :s0 "a"]  ;; to 2
+            [:s0 "b" :s0 "b"]
+            [:s0 "c" :s1 "c"]
+            [:s0 "d" :s0 "d"]
+            [:s1 "@" :s0 "@"]
+            [:s1 "a" :s2 "a"]
+            [:s1 "a" :s3 "b"]
+            [:s1 "b" :s0 "b"]
+            [:s1 "c" :s1 "c"]
+            [:s1 "d" :s0 "d"]
+            [:s2 "@" :s0 "@"]
+            [:s2 "a" :s0 "a"]
+            [:s2 "b" :s0 "b"]
+            [:s2 "c" :s1 "c"]
+            [:s3 "d" :s0 "d"]}})
+
 (def test-fst-1
-  {:sigma ["a" "b"],
-   :Q [:s0 :s1],
+  {:sigma #{"a" "b"},
+   :Q #{:s0 :s1},
    :s0 :s0,
-   :F [:s1],
-   :delta [[:s0 "a" :s1 "b"]]})
+   :F #{:s1},
+   :delta #{[:s0 "a" :s1 "b"]}})
 
 ;; The regular expression "a:b x:0" should produce the following fst:
 ;; TODO: the epsilon "0" should not be part of the alphabet
 (def test-fst-2
-  {:sigma ["x" "a" "b" "0"],
-   :Q [:s0 :s1 :s3 :s2],
+  {:sigma #{"x" "a" "b" "0"},
+   :Q #{:s0 :s1 :s3 :s2},
    :s0 :s0,
-   :F [:s3],
-   :delta [[:s2 "x" :s3 "0"]
-           [:s1 "0" :s2 "0"]
-           [:s0 "a" :s1 "b"]]})
+   :F #{:s3},
+   :delta #{[:s2 "x" :s3 "0"]
+            [:s1 "0" :s2 "0"]
+            [:s0 "a" :s1 "b"]}})
 
 (deftest test-apply-down
   (testing "apply-down on test-fst-1 with input \"a\""
@@ -45,13 +70,10 @@
     (let [regex-cmd "regex a:b ;"
           parse (read-regex regex-cmd)
           fst (parse-to-fst parse)]
-      ;; (pprint (read-regex regex-cmd))
       (is (= #{"a" "b"} (set (:sigma fst))))
       (is (= #{[:s0 "a" :s1 "b"]} (set (:delta fst))))
       (is (= :s0 (:s0 fst)))
-      (is (= [:s1] (:F fst)))
-      ;; (pprint fst)
-    )))
+      (is (= #{:s1} (:F fst))))))
 
 ;; regex a:? ;
 ;; Sigma: ? @ a
@@ -66,7 +88,7 @@
       (is (= #{[:s0 "a" :s1 "@_UNKNOWN_SYMBOL_@"]
                [:s0 "a" :s1 "a"]} (set (:delta fst))))
       (is (= :s0 (:s0 fst)))
-      (is (= [:s1] (:F fst))))))
+      (is (= #{:s1} (:F fst))))))
 
 ;; regex ?:a ;
 ;; Sigma: ? @ a
@@ -81,7 +103,7 @@
       (is (= #{[:s0 "@_UNKNOWN_SYMBOL_@" :s1 "a"]
                [:s0 "a" :s1 "a"]} (set (:delta fst))))
       (is (= :s0 (:s0 fst)))
-      (is (= [:s1] (:F fst))))))
+      (is (= #{:s1} (:F fst))))))
 
 ;; regex ? ;
 ;; Sigma: @
@@ -96,9 +118,9 @@
           parse (read-regex regex-cmd)
           fst (parse-to-fst parse)]
       (is (= #{"a"} (set (:sigma fst))))
-      (is (= [[:s0 "a" :s1 "a"]] (:delta fst)))
+      (is (= #{[:s0 "a" :s1 "a"]} (:delta fst)))
       (is (= :s0 (:s0 fst)))
-      (is (= [:s1] (:F fst))))))
+      (is (= #{:s1} (:F fst))))))
 
 ;; regex a ;
 ;; Sigma: a
@@ -109,9 +131,9 @@
           parse (read-regex regex-cmd)
           fst (parse-to-fst parse)]
       (is (= #{"a"} (set (:sigma fst))))
-      (is (= [[:s0 "a" :s1 "a"]] (:delta fst)))
+      (is (= #{[:s0 "a" :s1 "a"]} (:delta fst)))
       (is (= :s0 (:s0 fst)))
-      (is (= [:s1] (:F fst))))))
+      (is (= #{:s1} (:F fst))))))
 
 ;; regex a|b ;
 ;; Sigma: a b
@@ -140,7 +162,7 @@
     (let [regex-cmd "regex a* ;"
           parse (read-regex regex-cmd)
           fst (parse-to-fst parse)]
-      (is (= ["a"] (:sigma fst)))
+      (is (= #{"a" epsilon-symbol} (:sigma fst)))
       ;; Note: the following test on the FST will fail because my FST compiler
       ;; does not yet minimize...
       ;;(is (= [[:s0 "a" :s0 "a"]] (:delta fst)))
@@ -173,26 +195,26 @@
 
 ;; From Hulden p. 82
 (def non-minimized-fst
-  {:sigma ["a" "b"],
-   :Q [:s0 :s1 :s2 :s3 :s4],
+  {:sigma #{"a" "b"},
+   :Q #{:s0 :s1 :s2 :s3 :s4},
    :s0 :s0,
-   :F [:s4],
-   :delta [[:s0 "a" :s1 "a"]
-           [:s0 "b" :s2 "b"]
-           [:s1 "a" :s1 "a"]
-           [:s1 "b" :s3 "b"]
-           [:s2 "b" :s2 "b"]
-           [:s2 "a" :s1 "a"]
-           [:s3 "a" :s1 "a"]
-           [:s3 "b" :s4 "b"]
-           [:s4 "b" :s2 "b"]
-           [:s4 "a" :s1 "a"]]})
+   :F #{:s4},
+   :delta #{[:s0 "a" :s1 "a"]
+            [:s0 "b" :s2 "b"]
+            [:s1 "a" :s1 "a"]
+            [:s1 "b" :s3 "b"]
+            [:s2 "b" :s2 "b"]
+            [:s2 "a" :s1 "a"]
+            [:s3 "a" :s1 "a"]
+            [:s3 "b" :s4 "b"]
+            [:s4 "b" :s2 "b"]
+            [:s4 "a" :s1 "a"]}})
 
 (deftest test-hopcroft-canonical-equiv-classes
   (testing "Hopcroft canonical minimization produces correct equivalence
            classes"
     (let [equiv-classes (hopcroft-canonical-equiv-classes non-minimized-fst)]
-      (is (= #{[:s4] [:s3] [:s1] [:s0 :s2]} (set equiv-classes))))))
+      (is (= #{#{:s4} #{:s3} #{:s1} #{:s0 :s2}} (set equiv-classes))))))
 
 ;; When minimized, all instances of :s2 in `non-minimized-fst` should be
 ;; replaced with :s0
@@ -215,33 +237,33 @@
 
 ;; NFA (from Dave Bacon UW slides)
 (def non-deterministic-fst
-  {:sigma ["0" "1"],
-   :Q [:s1 :s2 :s3],
+  {:sigma #{"0" "1"},
+   :Q #{:s1 :s2 :s3},
    :s0 :s1,
-   :F [:s1],
-   :delta [[:s1 "@0@" :s2 "@0@"]
-           [:s1 "0" :s3 "0"]
-           [:s2 "1" :s1 "1"]
-           [:s2 "1" :s3 "1"]
-           [:s3 "0" :s1 "0"]]})
+   :F #{:s1},
+   :delta #{[:s1 "@0@" :s2 "@0@"]
+            [:s1 "0" :s3 "0"]
+            [:s2 "1" :s1 "1"]
+            [:s2 "1" :s3 "1"]
+            [:s3 "0" :s1 "0"]}})
 
 (def intermediate-delta
-  [[#{:s1 :s2} "0" #{:s3} "0"]
-   [#{:s1 :s2} "1" #{:s1 :s3} "1"]
-   [#{} "0" #{} "0"]
-   [#{} "1" #{} "1"]
-   [#{:s2} "0" #{} "0"]
-   [#{:s2} "1" #{:s1 :s3} "1"]
-   [#{:s3} "0" #{:s1} "0"]
-   [#{:s3} "1" #{} "1"]
-   [#{:s3 :s2} "0" #{:s1} "0"]
-   [#{:s3 :s2} "1" #{:s1 :s3} "1"]
-   [#{:s1 :s3} "0" #{:s1 :s3} "0"]
-   [#{:s1 :s3} "1" #{} "1"]
-   [#{:s1 :s3 :s2} "0" #{:s1 :s3} "0"]
-   [#{:s1 :s3 :s2} "1" #{:s1 :s3} "1"]
-   [#{:s1} "0" #{:s3} "0"]
-   [#{:s1} "1" #{} "1"]])
+  #{[#{:s1 :s2} "0" #{:s3} "0"]
+    [#{:s1 :s2} "1" #{:s1 :s3} "1"]
+    [#{} "0" #{} "0"]
+    [#{} "1" #{} "1"]
+    [#{:s2} "0" #{} "0"]
+    [#{:s2} "1" #{:s1 :s3} "1"]
+    [#{:s3} "0" #{:s1} "0"]
+    [#{:s3} "1" #{} "1"]
+    [#{:s3 :s2} "0" #{:s1} "0"]
+    [#{:s3 :s2} "1" #{:s1 :s3} "1"]
+    [#{:s1 :s3} "0" #{:s1 :s3} "0"]
+    [#{:s1 :s3} "1" #{} "1"]
+    [#{:s1 :s3 :s2} "0" #{:s1 :s3} "0"]
+    [#{:s1 :s3 :s2} "1" #{:s1 :s3} "1"]
+    [#{:s1} "0" #{:s3} "0"]
+    [#{:s1} "1" #{} "1"]})
 
 (deftest test-E
   (testing "`(E)` works as expected"
@@ -256,7 +278,7 @@
       (is (= #{:s1 :s2 :s3} (set (my-E '(:s1 :s2 :s3))))))))
 
 (def expected-determinized-fst
-  {:sigma ["0" "1"],
+  {:sigma #{"0" "1"},
    :Q #{:s0 :s1 :s3 :s2},
    :s0 :s0,
    :F #{:s0 :s3},
@@ -278,29 +300,129 @@
       ;;(println "\n")
       (is (= expected-determinized-fst determinized-fst)))))
 
-;; regex a:b c:d ;
-(deftest test-fst-atomic
-  (testing "\"regex a:b c:d ;\" produces the correct fst"
+;; a -> b ;
+(def fst-for-merge-1
+  {:sigma #{unknown-symbol identity-symbol "a" "b"}
+   :Q #{:s0}
+   :s0 :s0
+   :F #{:s0}
+   :delta #{[:s0 identity-symbol :s0 identity-symbol]
+            [:s0 "b" :s0 "b"]
+            [:s0 "a" :s0 "b"]}})
+
+;; c -> 0 ;
+(def fst-for-merge-2
+  {:sigma #{unknown-symbol identity-symbol "c"}
+   :Q #{:s0}
+   :s0 :s0
+   :F #{:s0}
+   :delta #{[:s0 identity-symbol :s0 identity-symbol]
+            [:s0 "c" :s0 epsilon-symbol]}})
+
+;; ? -> d ;
+(def fst-for-merge-3
+  {:sigma #{unknown-symbol identity-symbol "d"}
+   :Q #{:s0}
+   :s0 :s0
+   :F #{:s0}
+   :delta #{[:s0 unknown-symbol :s0 "d"]
+            [:s0 "d" :s0 "d"]}})
+
+(deftest test-merge-alphabet
+  (testing "`merge-alphabet` works as expected"
+    (let [[merged-alpha-1 merged-alpha-2]
+          (merge-alphabets fst-for-merge-1 fst-for-merge-2)]
+      (is (some #{[:s0 "c" :s0 "c"]} (:delta merged-alpha-1)))
+      (is (some #{[:s0 "a" :s0 "a"]} (:delta merged-alpha-2)))
+      (is (some #{[:s0 "b" :s0 "b"]} (:delta merged-alpha-2))))
+    (let [[merged-alpha-1 merged-alpha-3]
+          (merge-alphabets fst-for-merge-1 fst-for-merge-3)]
+      (is (some #{[:s0 "d" :s0 "d"]} (:delta merged-alpha-1)))
+      (is (some #{[:s0 "a" :s0 "d"]} (:delta merged-alpha-3)))
+      (is (some #{[:s0 "b" :s0 "d"]} (:delta merged-alpha-3))))))
+
+(deftest test-state-pair-converter
+  (testing "get-state-pair-converter returns a function that converts pairs of
+           states to state keywords."
+    (let [converter (get-state-pair-converter [:s0 :s0])]
+      (is (= :s0 (converter [:s0 :s0])))
+      (is (= :s1 (converter [:s0 :sink])))
+      (is (= :s2 (converter [:sink :sink])))
+      (is (= :s3 (converter [:sink :s0])))
+      (is (= :s4 (converter [:s2 :s1])))
+      (is (= :s5 (converter [:s1 :s2])))
+      (is (= :s1 (converter [:s0 :sink]))))))
+
+(deftest test-subset-construction
+  (testing "SubsetConstruction as determinization works"
     (let [regex-cmd "regex a:b c:d ;"
           parse (read-regex regex-cmd)
           fst (parse-to-fst parse)
           determinized-fst (subset-construction fst)]
-
-      (println "FST for `a:b c:d`")
-      (pprint fst)
-      (println "determinized FST for `a:b c:d`")
-      (pprint determinized-fst)
-      (println "\n")
-      (println (first (apply-down fst "ac")))
-      (println (first (apply-down determinized-fst "ac")))
-
-    )))
-
-(deftest test-subset-construction
-  (testing "`(subset-construction non-deterministic-fst)` works"
+      (is (= "bd" (first (apply-down fst "ac"))))
+      (is (= "bd" (first (apply-down determinized-fst "ac"))))
+      (is (= nil (first (apply-down fst "a"))))
+      (is (= nil (first (apply-down determinized-fst "a"))))
+      (is (not (empty? (filter
+                         (fn [[st-i sy-i st-o sy-o]]
+                           (and (= sy-i epsilon-symbol)
+                                (= sy-o epsilon-symbol)))
+                         (:delta fst)))))
+      (is (empty? (filter
+                    (fn [[st-i sy-i st-o sy-o]]
+                      (and (= sy-i epsilon-symbol)
+                           (= sy-o epsilon-symbol)))
+                    (:delta determinized-fst)))))
     (let [determinized-fst (subset-construction non-deterministic-fst)
-          det-delta (:delta determinized-fst)]
-      ;; (println "subset-construction:")
-      ;; (pprint determinized-fst)
-      ;; (println "\n")
-)))
+          det-delta (:delta determinized-fst)])))
+
+(deftest test-fst-union-product-construction
+  (testing "FST union via ProductConstruction algorithm"
+    (let [fst1 (parse-to-fst (read-regex "regex a ;"))
+          fst2 (parse-to-fst (read-regex "regex b ;"))
+          un (union-pc fst1 fst2)]
+      (is (= "a" (first (apply-down un "a"))))
+      (is (= "a" (first (apply-down fst1 "a"))))
+      (is (= nil (first (apply-down fst2 "a"))))
+      (is (= "b" (first (apply-down un "b"))))
+      (is (= nil (first (apply-down fst1 "b"))))
+      (is (= "b" (first (apply-down fst2 "b")))))
+    (let [fst1 (parse-to-fst (read-regex "regex a:b ;"))
+          fst2 (parse-to-fst (read-regex "regex c:d ;"))
+          un (union-pc fst1 fst2)]
+      ;; (pprint fst1)
+      ;; (pprint fst2)
+      ;; (pprint un)
+      (is (= "b" (first (apply-down un "a"))))
+      (is (= "b" (first (apply-down fst1 "a"))))
+      (is (= nil (first (apply-down fst2 "a"))))
+      (is (= "d" (first (apply-down un "c"))))
+      (is (= nil (first (apply-down fst1 "c"))))
+      (is (= "d" (first (apply-down fst2 "c")))))))
+
+(deftest test-fst-intersection-product-construction
+  (testing "FST intersection via ProductConstruction algorithm"
+    (let [fst1 (parse-to-fst (read-regex "regex a|b ;"))
+          fst1 (subset-construction fst1)
+          fst2 (parse-to-fst (read-regex "regex a ;"))
+          fst2 (subset-construction fst2)
+          in (intersection-pc fst1 fst2)]
+      ;; (view-fst in)
+      (is (= "a" (first (apply-down in "a"))))
+      (is (= "a" (first (apply-down fst1 "a"))))
+      (is (= "a" (first (apply-down fst2 "a"))))
+      (is (= nil (first (apply-down in "b"))))
+      (is (= "b" (first (apply-down fst1 "b"))))
+      (is (= nil (first (apply-down fst2 "b")))))
+    (let [fst1 (parse-to-fst (read-regex "regex a:b ;"))
+          fst2 (parse-to-fst (read-regex "regex c:d ;"))
+          un (union-pc fst1 fst2)]
+      ;; (pprint fst1)
+      ;; (pprint fst2)
+      ;; (pprint un)
+      (is (= "b" (first (apply-down un "a"))))
+      (is (= "b" (first (apply-down fst1 "a"))))
+      (is (= nil (first (apply-down fst2 "a"))))
+      (is (= "d" (first (apply-down un "c"))))
+      (is (= nil (first (apply-down fst1 "c"))))
+      (is (= "d" (first (apply-down fst2 "c")))))))

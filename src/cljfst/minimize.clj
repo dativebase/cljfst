@@ -85,8 +85,8 @@
                 (if (and subpart-incoming subpart-non-incoming)
                   (assoc
                     (assoc container :new-Pi
-                          (conj (:new-Pi container) subpart-incoming
-                                subpart-non-incoming))
+                           (conj (:new-Pi container) subpart-incoming
+                                 subpart-non-incoming))
                     :splits
                     (conj (:splits container) [partition [subpart-incoming
                                                           subpart-non-incoming]]))
@@ -194,7 +194,7 @@
                 (get-new-hcc-agenda (rest hcc-agenda) agenda-mods)]
             (recur fst new-hcc-agenda (:new-Pi new-Pi-and-splits)))
             (recur fst (rest hcc-agenda) Pi)))
-      Pi)))
+      (map set Pi))))
 
 (defn hopcroft-canonical-equiv-classes
   "Perform Hopcroft canonical minimization on `fst`, cf. Hulden p. 80. Takes an
@@ -202,14 +202,13 @@
   states that are equivalent and can be merged."
   [fst]
   (let [final-states (:F fst)
-        non-final-states (into []
-                               (difference
-                                 (set (:Q fst))
-                                 (set final-states)))
+        non-final-states (difference
+                           (set (:Q fst))
+                           (set final-states))
         Pi [final-states non-final-states]
         hcc-agenda
-        (get-hcc-agenda final-states non-final-states (:sigma fst) (:delta
-                                                                     fst))]
+        (get-hcc-agenda final-states non-final-states
+                        (:sigma fst) (:delta fst))]
     (agenda-to-equiv-classes fst hcc-agenda Pi)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

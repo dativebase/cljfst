@@ -252,7 +252,7 @@
                  :Q #{}
                  :s0 t0
                  :F #{}
-                 :delta #{}}]
+                 :delta #{}}
+        new-fst (process-Agenda Agenda in-fst out-fst)]
     (remove-unreachable
-      (state-ints->kws
-        (process-Agenda Agenda in-fst out-fst)))))
+      (state-ints->kws new-fst))))
