@@ -18,38 +18,67 @@
             [instaparse.core :as insta]
             [rhizome.viz :as viz]))
 
+(defn in-final-with-empty-input
+  "Return truthy if we are in a final state with an empty input string."
+  [input state fst]
+  (and (some #{state} (:F fst))
+        (clojure.string/blank? input)))
+
 (defn get-transitions
   "Return a seq of out-state/out-symbol pairs for the given in-state/in-symbol
   pair in the given fst"
-  [fst in-st in-sym]
+  [fst st-i input]
   (filter
-    #(and (= in-st (first %))
-          (or (= epsilon-symbol (second %)) (= in-sym (second %))))
+    (fn [[tr-st-i tr-sy-i _ __]]
+      (and (= st-i tr-st-i)
+           (or (= epsilon-symbol tr-sy-i)
+               (= input tr-sy-i)
+               (= unknown-symbol tr-sy-i)
+               (= identity tr-sy-i)
+               (clojure.string/starts-with? input tr-sy-i))))
     (:delta fst)))
+
+(defn consume-input
+  "Return a 2-ary vector containing a new input string and a new vector of
+  output strings by consuming prefix `sy-i` in `input` and suffixing `sy-o` to
+  each string in `outputs`."
+  [input sy-i sy-o outputs]
+  (let [consumed
+        (cond
+          (= epsilon-symbol sy-i) ""
+          (= identity-symbol sy-i) (str (first input))
+          (= unknown-symbol sy-i) (str (first input))
+          :else sy-i)
+        new-input (clojure.string/replace-first input consumed "")
+        new-outputs
+        (map
+          (fn [output]
+            (cond
+              (= epsilon-symbol sy-o) output
+              (= identity-symbol sy-o) (str output consumed)
+              (= unknown-symbol sy-o) (str output "?")
+              :else (str output sy-o)))
+          outputs)]
+    [new-input new-outputs]))
 
 (defn apply-down
   "Perform the apply down transformation on string `input` using the FST `fst`"
   ([fst input] (apply-down fst input (:s0 fst) [""]))
   ([fst input state outputs]
-    (if (and (some #{state} (:F fst))
-             (clojure.string/blank? input))
+    (if (in-final-with-empty-input input state fst)
         outputs
-        (let [inpchr (str (first input))]
-          (let
-            [keychr (if (some #{inpchr} (:sigma fst)) inpchr identity-symbol)
-              transitions (get-transitions fst state keychr)]
-            (reduce concat
-                    []
-                    (map (fn
-                            [[curr-state curr-sym next-state next-char]]
-                            (apply-down
-                              fst
-                              (if (= epsilon-symbol curr-sym) input (apply str (rest input)))
-                              next-state
-                              (map
-                                #(str % (get {identity-symbol inpchr epsilon-symbol ""} next-char next-char))
-                                outputs)))
-                          transitions)))))))
+        (let [inpchr (str (first input))
+              keychr (if (some #{inpchr} (:sigma fst)) inpchr identity-symbol)
+              transitions (get-transitions fst state input)]
+          (reduce
+            concat
+            []
+            (map
+              (fn [[_ sy-i next-state sy-o]]
+                (let [[new-input new-outputs]
+                      (consume-input input sy-i sy-o outputs)]
+                  (apply-down fst new-input next-state new-outputs)))
+              transitions))))))
 
 (defn states-syms-att
   "Input: len-4 vector from AT&T line; output: vector of keywords (states) and
@@ -251,6 +280,7 @@
   [[symbol-parse]]
   (cond
     (= :atomic-symbol (first symbol-parse)) (second symbol-parse)
+    (= :multi-char-symbol (first symbol-parse)) (apply str (rest symbol-parse))
     (= :wildcard (first symbol-parse)) unknown-symbol
     (= :nil-symbol (first symbol-parse)) epsilon-symbol
     (= :identity-symbol (first symbol-parse)) identity-symbol))
@@ -414,7 +444,7 @@
   (condp = OP
     :union (or (some #{p} F1) (some #{q} F2))
     :intersection (and (some #{p} F1) (some #{q} F2))
-    :diffference (and (some #{p} F1) (not (some #{q} F2)))))
+    :subtraction (and (some #{p} F1) (not (some #{q} F2)))))
 
 (defn get-state-pair-converter
   "Returns a function that maps pairs of states to unique state keywords. The
@@ -506,7 +536,7 @@
 
 (defn product-construction
   "Takes two FSTs and an operator OP (one of `:union`, `:intersection` and
-  `:difference`) and returns a new FST that combines the two input ones via OP.
+  `:subtraction`) and returns a new FST that combines the two input ones via OP.
   Note: the input FSTs must be e-free."
   [fst1 fst2 OP]
   (let [[fst1 fst2] (merge-alphabets fst1 fst2)
@@ -536,9 +566,9 @@
   [fst1 fst2]
   (product-construction fst1 fst2 :intersection))
 
-(defn difference-pc
+(defn subtraction-pc
   [fst1 fst2]
-  (product-construction fst1 fst2 :difference))
+  (product-construction fst1 fst2 :subtraction))
 
 (defn draw-graph
   []

@@ -56,6 +56,10 @@ reserved-symbols = (
   "≺" |
   "≻" )
 
+<reserved-symbol-re> = #"[!\"#$%&()*+,-./0:;<>?\[\\\]^_`{|}~¬¹×Σε⁻₁₂→↔∀∃∅∈∘∥∧∨∩∪≤≥≺≻]"
+<non-reserved-symbol-re> = #"[^!\"#$%&()*+,-./0:;<>?\[\\\]^_`{|}~¬¹×Σε⁻₁₂→↔∀∃∅∈∘∥∧∨∩∪≤≥≺≻]"
+<escaped-reserved-symbol-re> = <"%"> #"[!\"#$%&()*+,-./0:;<>?\[\\\]^_`{|}~¬¹×Σε⁻₁₂→↔∀∃∅∈∘∥∧∨∩∪≤≥≺≻]"
+
 regex-cmd = "regex"
 
 union-operator = "|"
@@ -85,9 +89,13 @@ rewrite = "->"
 left-optional-bracket = "("
 right-optional-bracket = ")"
 
-<all-symbols> = #"[a-zA-Z]"
-multi-char-symbol = #"." #"."+
-atomic-symbol = #"."
+atomic-symbol = <"\""> #"." <"\""> | non-reserved-symbol-re | escaped-reserved-symbol-re | <"\""> #"." <"\"">
+(* atomic-symbol = non-reserved-symbol-re | escaped-reserved-symbol-re *)
+(* multi-char-symbol = (non-reserved-symbol-re | escaped-reserved-symbol-re) (non-reserved-symbol-re | escaped-reserved-symbol-re)+ *)
+multi-char-symbol = (
+  (((<"\""> #"." <"\"">) | non-reserved-symbol-re | escaped-reserved-symbol-re)
+   ((<"\""> #"." <"\"">) | non-reserved-symbol-re | escaped-reserved-symbol-re)+) |
+  (<"\""> #"." #"."+ <"\"">))
 
 symbol = (
     multi-char-symbol |
@@ -98,7 +106,7 @@ symbol = (
 )
 
 concatenation = regex <concatenation-operator> regex
-union = regex <union-operator> regex
+union = regex <#"\s*"> <union-operator> <#"\s*"> regex
 <grouping> = left-grouping-bracket regex right-grouping-bracket
 mapping = symbol |
           symbol cross-product symbol |
@@ -109,8 +117,8 @@ kleene-plus-repetition = regex kleene-plus
 
 <regex> = symbol |
         grouping |
-        union |
         concatenation |
+        union |
         kleene-star-repetition |
         kleene-plus-repetition |
         mapping

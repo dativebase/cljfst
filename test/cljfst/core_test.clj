@@ -407,22 +407,92 @@
           fst2 (parse-to-fst (read-regex "regex a ;"))
           fst2 (subset-construction fst2)
           in (intersection-pc fst1 fst2)]
-      ;; (view-fst in)
       (is (= "a" (first (apply-down in "a"))))
       (is (= "a" (first (apply-down fst1 "a"))))
       (is (= "a" (first (apply-down fst2 "a"))))
       (is (= nil (first (apply-down in "b"))))
       (is (= "b" (first (apply-down fst1 "b"))))
       (is (= nil (first (apply-down fst2 "b")))))
-    (let [fst1 (parse-to-fst (read-regex "regex a:b ;"))
-          fst2 (parse-to-fst (read-regex "regex c:d ;"))
-          un (union-pc fst1 fst2)]
-      ;; (pprint fst1)
-      ;; (pprint fst2)
-      ;; (pprint un)
-      (is (= "b" (first (apply-down un "a"))))
+    (let [fst1 (subset-construction (parse-to-fst (read-regex "regex a:b ;")))
+          fst2 (subset-construction (parse-to-fst (read-regex "regex c:d ;")))
+          in (intersection-pc fst1 fst2)]
+      (is (= nil (first (apply-down in "a"))))
       (is (= "b" (first (apply-down fst1 "a"))))
       (is (= nil (first (apply-down fst2 "a"))))
-      (is (= "d" (first (apply-down un "c"))))
+      (is (= nil (first (apply-down in "c"))))
       (is (= nil (first (apply-down fst1 "c"))))
       (is (= "d" (first (apply-down fst2 "c")))))))
+
+(deftest test-fst-subtraction-product-construction
+  (testing "FST subtraction via ProductConstruction algorithm"
+    (let [fst1 (parse-to-fst (read-regex "regex a|b ;"))
+          fst1 (subset-construction fst1)
+          fst2 (parse-to-fst (read-regex "regex a ;"))
+          fst2 (subset-construction fst2)
+          sub (subtraction-pc fst1 fst2)]
+      (is (= nil (first (apply-down sub "a"))))
+      (is (= "a" (first (apply-down fst1 "a"))))
+      (is (= "a" (first (apply-down fst2 "a"))))
+      (is (= "b" (first (apply-down sub "b"))))
+      (is (= "b" (first (apply-down fst1 "b"))))
+      (is (= nil (first (apply-down fst2 "b")))))
+    (let [fst1 (subset-construction (parse-to-fst (read-regex "regex a:b ;")))
+          fst2 (subset-construction (parse-to-fst (read-regex "regex c:d ;")))
+          sub (subtraction-pc fst1 fst2)]
+      (is (= "b" (first (apply-down sub "a"))))
+      (is (= "b" (first (apply-down fst1 "a"))))
+      (is (= nil (first (apply-down fst2 "a"))))
+      (is (= nil (first (apply-down sub "c"))))
+      (is (= nil (first (apply-down fst1 "c"))))
+      (is (= "d" (first (apply-down fst2 "c")))))))
+
+(deftest test-complex-regex
+  (testing "Complex regexes are parsed and interpreted"
+    (let [parse (read-regex "regex [a:b|c:d]* | x ;")
+          fst (parse-to-fst parse)]
+      ;; (println "complex regex")
+      ;; (pprint parse)
+      ;; (pprint fst)
+      (is (= "bdb" (first (apply-down fst "aca")))))))
+
+(deftest test-parse-reserved-symbols
+  (testing "Reserved symbol escaping in regexes works"
+    (let [regex "regex a|%||b ;"
+          parse (read-regex regex)
+          fst (parse-to-fst parse)]
+      ;; (pprint parse)
+      ;; (pprint fst)
+      (is (= "a" (first (apply-down fst "a"))))
+      (is (= "b" (first (apply-down fst "b"))))
+      (is (= "|" (first (apply-down fst "|"))))
+      (is (= nil (first (apply-down fst "c")))))
+    (let [regex "regex a|\"|\"|b ;"
+          parse (read-regex regex)
+          fst (parse-to-fst parse)]
+      ;; (pprint parse)
+      ;; (pprint fst)
+      (is (= "a" (first (apply-down fst "a"))))
+      (is (= "b" (first (apply-down fst "b"))))
+      (is (= "|" (first (apply-down fst "|"))))
+      (is (= nil (first (apply-down fst "c")))))))
+
+(deftest test-multi-char-symbols
+  (testing "Multi-character symbols in regexes work"
+    (let [regex "regex a%|b ;"
+          parse (read-regex regex)
+          fst (parse-to-fst parse)]
+      ;; (pprint parse)
+      ;; (pprint fst)
+      (is (= nil (first (apply-down fst "a"))))
+      (is (= nil (first (apply-down fst "b"))))
+      (is (= nil (first (apply-down fst "|"))))
+      (is (= "a|b" (first (apply-down fst "a|b")))))
+    (let [regex "regex \"a|b\" ;"
+          parse (read-regex regex)
+          fst (parse-to-fst parse)]
+      ;; (pprint parse)
+      ;; (pprint fst)
+      (is (= nil (first (apply-down fst "a"))))
+      (is (= nil (first (apply-down fst "b"))))
+      (is (= nil (first (apply-down fst "|"))))
+      (is (= "a|b" (first (apply-down fst "a|b")))))))
