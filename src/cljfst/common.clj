@@ -34,3 +34,10 @@
   "Increment a state (keyword) and return it as a keyword"
   [state-keyword]
   (int-to-state (inc (state-to-int state-keyword))))
+
+(defn pluralize-by-count
+  "Pluralize `noun` based on count `count`."
+  [noun count]
+  (condp = count
+    1 noun
+    (str noun "s")))
