@@ -15,6 +15,7 @@
   (:gen-class)
   (:require [clojure.pprint :refer [pprint]]
             [clojure.string :as string]
+            [clojure.set :refer [union]]
             [clojure.tools.cli :refer [parse-opts]]
             [rhizome.viz :as viz]
             [cljfst.common :refer [epsilon-symbol
@@ -34,16 +35,18 @@
   "Input: len-4 vector from AT&T line; output: vector of keywords (states) and
   strings (FST symbols)"
   [fields]
-  (map-indexed
-    (fn [idx itm]
-      (if (< idx 2)
-        (keyword (str "s" itm))
-        (if (= itm "@_IDENTITY_SYMBOL_@")
-          identity-symbol
-          (if (= itm epsilon-symbol)
-            ""
-            itm))))
-    fields))
+  (let [result
+        (map-indexed
+          (fn [idx itm]
+            (if (< idx 2)
+              (keyword (str "s" itm))
+              (if (= itm "@_IDENTITY_SYMBOL_@")
+                identity-symbol
+                (if (= itm epsilon-symbol)
+                  ""
+                  itm))))
+          fields)]
+    result))
 
 (defn process-line-att [line]
   "Process AT&T FST line: 4 tab-separated vals means input state, output state,
@@ -51,23 +54,21 @@
   (let [fields (string/split line #"\t")]
     (if (> (count fields) 3)
       (let [[st-i st-o sym-i sym-o] (states-syms-att fields)]
-        {:delta [st-i sym-i st-o sym-o]
-         :sigma [sym-i sym-o]})
-      {:F [(keyword (str "s" (first fields)))]})))
+        {:delta #{[st-i sym-i st-o sym-o]}
+         :sigma (set [sym-i sym-o])
+         :Q (set [st-i st-o])})
+      {:F #{(keyword (str "s" (first fields)))}})))
 
 (defn add-att-line-to-fst
   "Return a new `fst` hash built by updating the passed-in one with the AT&T
   line"
   [fst line]
   (let [p-l (process-line-att line)]
-    (assoc
-      (assoc
-        (assoc fst :delta (conj (:delta fst) (:delta p-l)))
-        :sigma
-        (into [] (set (into (:sigma fst) (get p-l :sigma [])))))
-      :F
-      (into [] (set (into (:F fst) (get p-l :F [])))))))
-
+    (assoc fst
+           :delta (union (:delta fst) (get p-l :delta #{}))
+           :sigma (union (:sigma fst) (get p-l :sigma #{}))
+           :Q (union (:Q fst) (get p-l :Q #{}))
+           :F (union (:F fst) (get p-l :F #{})))))
 
 (defn parse-att
   "Parse AT&T-formatted FST file at `file-path` and return an FST hash map."
@@ -75,11 +76,11 @@
   (with-open [rdr (clojure.java.io/reader file-path)]
     (reduce
       add-att-line-to-fst
-      {:sigma []  ;; alphabet
-       :Q []  ;; all states
+      {:sigma #{}  ;; alphabet
+       :Q #{}  ;; all states
        :s0 :s0  ;; designated start state
-       :F []  ;; final states
-       :delta []  ;; vector of vectors: [[st-i sym-i st-o sym-o] ...]
+       :F #{}  ;; final states
+       :delta #{}  ;; set of vectors: #{[st-i sym-i st-o sym-o] ...}
       }
       (line-seq rdr))))
 

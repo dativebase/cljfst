@@ -41,3 +41,8 @@
   (condp = count
     1 noun
     (str noun "s")))
+
+(defn get-next-free-state
+  "Get the next free state keyword"
+  [state-set]
+  (int-to-state (inc (apply max (map state-to-int state-set)))))

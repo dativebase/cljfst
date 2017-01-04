@@ -24,7 +24,8 @@
                                    inc-state
                                    epsilon-symbol
                                    unknown-symbol
-                                   identity-symbol]]
+                                   identity-symbol
+                                   get-next-free-state]]
             [cljfst.determinize :refer [subset-construction]]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -257,7 +258,7 @@
     (list (merge-alphabet fst1 N1) (merge-alphabet fst2 N2))))
 
 
-;; Product Construction-related functions
+;; Product Construction-related functions: union, intersection, subtraction
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (def sink-state :sink)
@@ -462,6 +463,56 @@
 (defn subtraction-pc
   [fst1 fst2]
   (product-construction fst1 fst2 :subtraction))
+
+;; Reverse
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defn get-e-transitions
+  "Return a set of epsilon-transitions from each state in `src-state-set` to
+  the destination state `dst-state`."
+  [src-state-set dst-state]
+  (set (map
+         (fn [state]
+           [state epsilon-symbol dst-state epsilon-symbol])
+         src-state-set)))
+
+(defn get-single-F
+  "Modify `fst` so that it has a single final state."
+  [fst]
+  (if (= 1 (count (:F fst)))
+    fst
+    (let [new-final-state (get-next-free-state (:Q fst))
+          new-F #{new-final-state}
+          new-Q (conj (:Q fst) new-final-state)
+          new-delta (union (:delta fst)
+                           (get-e-transitions (:F fst) new-final-state))]
+      {:sigma (:sigma fst)
+       :Q new-Q
+       :s0 (:s0 fst)
+       :F new-F
+       :delta new-delta})))
+
+(defn reverse-delta
+  "Return `delta` with all of its transitions reversed, i.e., with the in/out
+  states swapped."
+  [delta]
+  (set (map (fn [[st-i sy-i st-o sy-o]] [st-o sy-i st-i sy-o]) delta)))
+
+(defn reverse-fst
+  "Reverse an FST: 'make the final states initial and vice versa', and
+  reversing/inverting the transitions."
+  [fst]
+  (let [fst (get-single-F fst)
+        new-initial (first (:F fst))
+        new-final #{(:s0 fst)}]
+    (assoc fst
+           :s0 new-initial
+           :F new-final
+           :delta (reverse-delta (:delta fst)))))
+
+
+;; General Regex Evaluation
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defn eval-fst
   "Evaluate the regular expression `regex` to an FST. This means evaluating the

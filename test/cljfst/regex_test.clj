@@ -4,6 +4,7 @@
             [cljfst.regex :refer :all]
             [cljfst.determinize :refer [subset-construction]]
             [cljfst.apply :refer [apply-down]]
+            [cljfst.iface :refer [parse-att]]
             [cljfst.fixtures :refer :all]
             [cljfst.common :refer [unknown-symbol
                                    identity-symbol
@@ -285,3 +286,15 @@
       (is (= "aaaa" (first (apply-down fst "aaaa"))))
       (is (= "" (first (apply-down fst ""))))
       (is (empty? (apply-down fst "ab"))))))
+
+;; The test-att-1 file encodes the regex a -> b || c _ d ;
+;; When reversed, it should behave like a -> b || d _ c ;
+(deftest test-reverse-fst
+  (testing "`referse-fst` works as expected"
+    (let [fst (parse-att "resources/test-att-1")
+          fst-rev (reverse-fst fst)]
+      (is (= "cbd" (first (apply-down fst "cad"))))
+      (is (= "dac" (first (apply-down fst "dac"))))
+      (is (= "cad" (first (apply-down fst-rev "cad"))))
+      (is (= "dbc" (first (apply-down fst-rev "dac")))))))
+
