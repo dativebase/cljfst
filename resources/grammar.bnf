@@ -1,4 +1,4 @@
-regex-stmt = regex-cmd <#"\s*"> regex <#"\s*"> stmt-trmntr
+regex-stmt = <#"\s*"> regex <#"\s*"> stmt-trmntr
 
 reserved-symbols = (
   "!" |

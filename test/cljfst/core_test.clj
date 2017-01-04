@@ -67,7 +67,7 @@
 ;; fs1:(no arcs).
 (deftest test-fst-atomic
   (testing "\"regex a:b ;\" produces the correct fst"
-    (let [regex-cmd "regex a:b ;"
+    (let [regex-cmd "a:b ;"
           parse (read-regex regex-cmd)
           fst (parse-to-fst parse)]
       (is (= #{"a" "b"} (set (:sigma fst))))
@@ -80,7 +80,7 @@
 ;; Ss0: <a:?> -> fs1, a -> fs1.
 (deftest test-fst-sym-unknown
   (testing "\"regex a:? ;\" produces the correct fst"
-    (let [regex-cmd "regex a:? ;"
+    (let [regex-cmd "a:? ;"
           parse (read-regex regex-cmd)
           fst (parse-to-fst parse)]
       (is (= #{"@_UNKNOWN_SYMBOL_@" "@_IDENTITY_SYMBOL_@" "a"}
@@ -95,7 +95,7 @@
 ;; Ss0: <?:a> -> fs1, a -> fs1.
 (deftest test-fst-unknown-sym
   (testing "\"regex ?:a ;\" produces the correct fst"
-    (let [regex-cmd "regex ?:a ;"
+    (let [regex-cmd "?:a ;"
           parse (read-regex regex-cmd)
           fst (parse-to-fst parse)]
       (is (= #{"@_UNKNOWN_SYMBOL_@" "@_IDENTITY_SYMBOL_@" "a"}
@@ -114,7 +114,7 @@
 ;; Ss0:a -> fs1.
 (deftest test-fst-sym-sym
   (testing "\"regex a:a ;\" produces the correct fst"
-    (let [regex-cmd "regex a:a ;"
+    (let [regex-cmd "a:a ;"
           parse (read-regex regex-cmd)
           fst (parse-to-fst parse)]
       (is (= #{"a"} (set (:sigma fst))))
@@ -127,7 +127,7 @@
 ;; Ss0:a -> fs1.
 (deftest test-fst-sym
   (testing "\"regex a ;\" produces the correct fst"
-    (let [regex-cmd "regex a ;"
+    (let [regex-cmd "a ;"
           parse (read-regex regex-cmd)
           fst (parse-to-fst parse)]
       (is (= #{"a"} (set (:sigma fst))))
@@ -140,7 +140,7 @@
 ;; Ss0:a -> fs1, b -> fs1.
 (deftest test-fst-union
   (testing "\"regex a|b ;\" produces the correct fst"
-    (let [regex-cmd "regex a|b ;"
+    (let [regex-cmd "a|b ;"
           parse (read-regex regex-cmd)
           fst (parse-to-fst parse)]
       (is (= #{"a" "b"} (set (:sigma fst))))
@@ -159,7 +159,7 @@
 ;; Sfs0: a -> fs0
 (deftest test-fst-kleene-atomic
   (testing "\"regex a*;\" produces the correct fst"
-    (let [regex-cmd "regex a* ;"
+    (let [regex-cmd "a* ;"
           parse (read-regex regex-cmd)
           fst (parse-to-fst parse)]
       (is (= #{"a" epsilon-symbol} (:sigma fst)))
@@ -167,9 +167,10 @@
       ;; does not yet minimize...
       ;;(is (= [[:s0 "a" :s0 "a"]] (:delta fst)))
       (is (= :s0 (:s0 fst)))
-      (is (= [:s0] (:F fst)))
+      (is (= #{:s0} (:F fst)))
       (is (= "a" (first (apply-down fst "a"))))
       (is (= "aaaa" (first (apply-down fst "aaaa"))))
+      (is (= "" (first (apply-down fst ""))))
       (is (empty? (apply-down fst "ab"))))))
 
 ;; regex a b ;
@@ -178,7 +179,7 @@
 ;; s1:b -> fs2
 (deftest test-fst-concat
   (testing "\"regex a b ;\" produces the correct fst"
-    (let [regex-cmd "regex a b ;"
+    (let [regex-cmd "a b ;"
           parse (read-regex regex-cmd)
           fst (parse-to-fst parse)]
       ;; (pprint parse)
@@ -269,13 +270,13 @@
   (testing "`(E)` works as expected"
     (let [my-E (fn [state-set] (E state-set non-deterministic-fst))]
       (is (= (my-E #{}) #{}))
-      (is (= #{:s1 :s2} (set (my-E [:s1]))))
-      (is (= #{:s2} (set (my-E '(:s2)))))
-      (is (= #{:s3} (set (my-E '(:s3)))))
-      (is (= #{:s1 :s2} (set (my-E '(:s1 :s2)))))
-      (is (= #{:s1 :s2 :s3} (set (my-E '(:s1 :s3)))))
-      (is (= #{:s2 :s3} (set (my-E '(:s2 :s3)))))
-      (is (= #{:s1 :s2 :s3} (set (my-E '(:s1 :s2 :s3))))))))
+      (is (= #{:s1 :s2} (set (my-E #{:s1}))))
+      (is (= #{:s2} (set (my-E #{:s2}))))
+      (is (= #{:s3} (set (my-E #{:s3}))))
+      (is (= #{:s1 :s2} (set (my-E #{:s1 :s2}))))
+      (is (= #{:s1 :s2 :s3} (set (my-E #{:s1 :s3}))))
+      (is (= #{:s2 :s3} (set (my-E #{:s2 :s3}))))
+      (is (= #{:s1 :s2 :s3} (set (my-E #{:s1 :s2 :s3})))))))
 
 (def expected-determinized-fst
   {:sigma #{"0" "1"},
@@ -355,7 +356,7 @@
 
 (deftest test-subset-construction
   (testing "SubsetConstruction as determinization works"
-    (let [regex-cmd "regex a:b c:d ;"
+    (let [regex-cmd "a:b c:d ;"
           parse (read-regex regex-cmd)
           fst (parse-to-fst parse)
           determinized-fst (subset-construction fst)]
@@ -378,8 +379,8 @@
 
 (deftest test-fst-union-product-construction
   (testing "FST union via ProductConstruction algorithm"
-    (let [fst1 (parse-to-fst (read-regex "regex a ;"))
-          fst2 (parse-to-fst (read-regex "regex b ;"))
+    (let [fst1 (parse-to-fst (read-regex "a ;"))
+          fst2 (parse-to-fst (read-regex "b ;"))
           un (union-pc fst1 fst2)]
       (is (= "a" (first (apply-down un "a"))))
       (is (= "a" (first (apply-down fst1 "a"))))
@@ -387,8 +388,8 @@
       (is (= "b" (first (apply-down un "b"))))
       (is (= nil (first (apply-down fst1 "b"))))
       (is (= "b" (first (apply-down fst2 "b")))))
-    (let [fst1 (parse-to-fst (read-regex "regex a:b ;"))
-          fst2 (parse-to-fst (read-regex "regex c:d ;"))
+    (let [fst1 (parse-to-fst (read-regex "a:b ;"))
+          fst2 (parse-to-fst (read-regex "c:d ;"))
           un (union-pc fst1 fst2)]
       ;; (pprint fst1)
       ;; (pprint fst2)
@@ -402,9 +403,9 @@
 
 (deftest test-fst-intersection-product-construction
   (testing "FST intersection via ProductConstruction algorithm"
-    (let [fst1 (parse-to-fst (read-regex "regex a|b ;"))
+    (let [fst1 (parse-to-fst (read-regex "a|b ;"))
           fst1 (subset-construction fst1)
-          fst2 (parse-to-fst (read-regex "regex a ;"))
+          fst2 (parse-to-fst (read-regex "a ;"))
           fst2 (subset-construction fst2)
           in (intersection-pc fst1 fst2)]
       (is (= "a" (first (apply-down in "a"))))
@@ -413,8 +414,8 @@
       (is (= nil (first (apply-down in "b"))))
       (is (= "b" (first (apply-down fst1 "b"))))
       (is (= nil (first (apply-down fst2 "b")))))
-    (let [fst1 (subset-construction (parse-to-fst (read-regex "regex a:b ;")))
-          fst2 (subset-construction (parse-to-fst (read-regex "regex c:d ;")))
+    (let [fst1 (subset-construction (parse-to-fst (read-regex "a:b ;")))
+          fst2 (subset-construction (parse-to-fst (read-regex "c:d ;")))
           in (intersection-pc fst1 fst2)]
       (is (= nil (first (apply-down in "a"))))
       (is (= "b" (first (apply-down fst1 "a"))))
@@ -425,9 +426,9 @@
 
 (deftest test-fst-subtraction-product-construction
   (testing "FST subtraction via ProductConstruction algorithm"
-    (let [fst1 (parse-to-fst (read-regex "regex a|b ;"))
+    (let [fst1 (parse-to-fst (read-regex "a|b ;"))
           fst1 (subset-construction fst1)
-          fst2 (parse-to-fst (read-regex "regex a ;"))
+          fst2 (parse-to-fst (read-regex "a ;"))
           fst2 (subset-construction fst2)
           sub (subtraction-pc fst1 fst2)]
       (is (= nil (first (apply-down sub "a"))))
@@ -436,8 +437,8 @@
       (is (= "b" (first (apply-down sub "b"))))
       (is (= "b" (first (apply-down fst1 "b"))))
       (is (= nil (first (apply-down fst2 "b")))))
-    (let [fst1 (subset-construction (parse-to-fst (read-regex "regex a:b ;")))
-          fst2 (subset-construction (parse-to-fst (read-regex "regex c:d ;")))
+    (let [fst1 (subset-construction (parse-to-fst (read-regex "a:b ;")))
+          fst2 (subset-construction (parse-to-fst (read-regex "c:d ;")))
           sub (subtraction-pc fst1 fst2)]
       (is (= "b" (first (apply-down sub "a"))))
       (is (= "b" (first (apply-down fst1 "a"))))
@@ -448,16 +449,23 @@
 
 (deftest test-complex-regex
   (testing "Complex regexes are parsed and interpreted"
-    (let [parse (read-regex "regex [a:b|c:d]* | x ;")
+    (let [parse (read-regex "[a:b|c:d]* | x ;")
           fst (parse-to-fst parse)]
       ;; (println "complex regex")
       ;; (pprint parse)
       ;; (pprint fst)
-      (is (= "bdb" (first (apply-down fst "aca")))))))
+      (is (= "bdb" (first (apply-down fst "aca")))))
+    (let [parse (read-regex "a:b|c* ;")
+          fst (parse-to-fst parse)]
+      ;; (println "complex regex")
+      ;; (pprint parse)
+      ;; (pprint fst)
+      (is (= "b" (first (apply-down fst "a"))))
+      (is (= "ccc" (first (apply-down fst "ccc")))))))
 
 (deftest test-parse-reserved-symbols
   (testing "Reserved symbol escaping in regexes works"
-    (let [regex "regex a|%||b ;"
+    (let [regex "a|%||b ;"
           parse (read-regex regex)
           fst (parse-to-fst parse)]
       ;; (pprint parse)
@@ -466,7 +474,7 @@
       (is (= "b" (first (apply-down fst "b"))))
       (is (= "|" (first (apply-down fst "|"))))
       (is (= nil (first (apply-down fst "c")))))
-    (let [regex "regex a|\"|\"|b ;"
+    (let [regex "a|\"|\"|b ;"
           parse (read-regex regex)
           fst (parse-to-fst parse)]
       ;; (pprint parse)
@@ -478,7 +486,7 @@
 
 (deftest test-multi-char-symbols
   (testing "Multi-character symbols in regexes work"
-    (let [regex "regex a%|b ;"
+    (let [regex "a%|b ;"
           parse (read-regex regex)
           fst (parse-to-fst parse)]
       ;; (pprint parse)
@@ -487,7 +495,7 @@
       (is (= nil (first (apply-down fst "b"))))
       (is (= nil (first (apply-down fst "|"))))
       (is (= "a|b" (first (apply-down fst "a|b")))))
-    (let [regex "regex \"a|b\" ;"
+    (let [regex "\"a|b\" ;"
           parse (read-regex regex)
           fst (parse-to-fst parse)]
       ;; (pprint parse)
@@ -496,3 +504,28 @@
       (is (= nil (first (apply-down fst "b"))))
       (is (= nil (first (apply-down fst "|"))))
       (is (= "a|b" (first (apply-down fst "a|b")))))))
+
+;; regex a* ;
+;; Sigma: a
+;; Sfs0: a -> fs0
+(deftest test-fst-kleene-atomic
+  (testing "\"regex a*;\" produces the correct fst"
+    (let [regex-cmd "a* ;"
+          parse (read-regex regex-cmd)
+          fst (parse-to-fst parse)]
+      (is (= #{"a" epsilon-symbol} (:sigma fst)))
+      ;; Note: the following test on the FST will fail because my FST compiler
+      ;; does not yet minimize...
+      ;;(is (= [[:s0 "a" :s0 "a"]] (:delta fst)))
+      (pprint fst)
+      (is (= "a" (first (apply-down fst "a"))))
+      (is (= "aaaa" (first (apply-down fst "aaaa"))))
+      (is (empty? (apply-down fst "ab")))
+      (println "fst for a*:")
+      (pprint fst)
+      (let [det-fst (subset-construction fst)]
+        (println "\ndeterminized fst for a*:")
+        (pprint det-fst))
+      )))
+
+

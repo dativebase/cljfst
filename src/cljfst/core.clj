@@ -4,7 +4,7 @@
             [clojure.set :refer [intersection
                                  difference
                                  union]]
-            [clojure.string]
+            [clojure.string :as string]
             [cljfst.minimize :refer [minimize-hcc]]
             [cljfst.determinize :refer [determinize
                                         subset-construction]]
@@ -16,13 +16,14 @@
                                    unknown-symbol
                                    identity-symbol]]
             [instaparse.core :as insta]
-            [rhizome.viz :as viz]))
+            [rhizome.viz :as viz]
+            [clojure.tools.cli :refer [parse-opts]]))
 
 (defn in-final-with-empty-input
   "Return truthy if we are in a final state with an empty input string."
   [input state fst]
   (and (some #{state} (:F fst))
-        (clojure.string/blank? input)))
+        (string/blank? input)))
 
 (defn get-transitions
   "Return a seq of out-state/out-symbol pairs for the given in-state/in-symbol
@@ -35,7 +36,7 @@
                (= input tr-sy-i)
                (= unknown-symbol tr-sy-i)
                (= identity tr-sy-i)
-               (clojure.string/starts-with? input tr-sy-i))))
+               (string/starts-with? input tr-sy-i))))
     (:delta fst)))
 
 (defn consume-input
@@ -49,7 +50,7 @@
           (= identity-symbol sy-i) (str (first input))
           (= unknown-symbol sy-i) (str (first input))
           :else sy-i)
-        new-input (clojure.string/replace-first input consumed "")
+        new-input (string/replace-first input consumed "")
         new-outputs
         (map
           (fn [output]
@@ -98,7 +99,7 @@
 (defn process-line-att [line]
   "Process AT&T FST line: 4 tab-separated vals means input state, output state,
   input symbol, output symbol. One value means final state"
-  (let [fields (clojure.string/split line #"\t")]
+  (let [fields (string/split line #"\t")]
     (if (> (count fields) 3)
       (let [[st-i st-o sym-i sym-o] (states-syms-att fields)]
         {:delta [st-i sym-i st-o sym-o]
@@ -225,16 +226,16 @@
   "Increment all states in fst"
   [fst]
   {:sigma (:sigma fst)
-   :Q (into [] (map inc-state (:Q fst)))
+   :Q (set (map inc-state (:Q fst)))
    :s0 (inc-state (:s0 fst))
-   :F (into [] (map inc-state (:F fst)))
-   :delta (into [] (map (fn
-                          [[st-i sy-i st-o sy-o]]
-                          [(inc-state st-i)
-                           sy-i
-                           (inc-state st-o)
-                           sy-o])
-                        (:delta fst)))})
+   :F (set (map inc-state (:F fst)))
+   :delta (set (map (fn
+                      [[st-i sy-i st-o sy-o]]
+                      [(inc-state st-i)
+                       sy-i
+                       (inc-state st-o)
+                       sy-o])
+                    (:delta fst)))})
 
 (defn perform-union
   "Perform the union operation on two FSTs: fst1 and fst2
@@ -246,16 +247,17 @@
         fst1 (inc-all-states fst1)
         fst2 (inc-all-states fst2-no-confl)]
     {:sigma (:sigma fst2)
-     :Q (into [] (set (concat (:Q fst1) (:Q fst2) [:s0])))
+     :Q (set (concat (:Q fst1) (:Q fst2) [:s0]))
      :s0 :s0
-     :F (into [] (set (concat (:F fst1) (:F fst2))))
-     :delta (into [] (set (concat (:delta fst1)
-                             (:delta fst2)
-                             (map
-                               (fn [prev-init-st]
-                                 [:s0 epsilon-symbol prev-init-st
-                                  epsilon-symbol])
-                               [(:s0 fst1) (:s0 fst2)]))))}))
+     :F (set (concat (:F fst1) (:F fst2)))
+     :delta (set
+              (concat
+                (:delta fst1)
+                (:delta fst2)
+                (map
+                  (fn [prev-init-st]
+                    [:s0 epsilon-symbol prev-init-st epsilon-symbol])
+                  [(:s0 fst1) (:s0 fst2)])))}))
 
 (defn kleene-star-repeat
   "- add a new initial state which is also final with epsilon-transition(s) to
@@ -264,17 +266,20 @@
      state"
   [fst]
   (let [tmp-fst (inc-all-states fst)
-        prev-final-states (:F tmp-fst)]
-    {:sigma (conj (:sigma tmp-fst) epsilon-symbol)
-     :Q (conj (:Q tmp-fst) :s0)
-     :s0 :s0
-     :F [:s0]
-     :delta (concat (:delta tmp-fst)
-                    [[:s0 epsilon-symbol :s1 epsilon-symbol]]
-                    (into []
-                          (map (fn [prev-final-state]
-                                 [prev-final-state epsilon-symbol :s0 epsilon-symbol])
-                               prev-final-states)))}))
+        prev-final-states (:F tmp-fst)
+        result
+        {:sigma (conj (:sigma tmp-fst) epsilon-symbol)
+         :Q (conj (:Q tmp-fst) :s0)
+         :s0 :s0
+         :F #{:s0}
+         :delta (set (concat
+                  (:delta tmp-fst)
+                  [[:s0 epsilon-symbol :s1 epsilon-symbol]]
+                  (map (fn [prev-final-state]
+                         [prev-final-state epsilon-symbol :s0
+                          epsilon-symbol])
+                       prev-final-states)))}]
+    (subset-construction result)))
 
 (defn process-regex-symbol
   [[symbol-parse]]
@@ -284,29 +289,6 @@
     (= :wildcard (first symbol-parse)) unknown-symbol
     (= :nil-symbol (first symbol-parse)) epsilon-symbol
     (= :identity-symbol (first symbol-parse)) identity-symbol))
-
-(defn regex-to-fst
-  "Convert the regular expression `regex` to an FST (hash)"
-  [fst regex]
-  (cond
-    (= :regex-stmt regex) fst
-    (some #{(first regex)} #{:regex-cmd :stmt-trmntr}) fst
-    (= :symbol (first regex)) (process-regex-symbol (rest regex))
-    (string? regex) (regex-to-fst {} [:mapping regex regex])
-    (= :mapping (first regex)) (apply create-mapping (map #(regex-to-fst {} %) (rest regex)))
-    (= :concatenation (first regex)) (concatenate (map #(regex-to-fst {} %) (rest regex)))
-    (= :union (first regex)) (perform-union (map #(regex-to-fst {} %) (rest regex)))
-    (= :kleene-star-repetition (first regex)) (kleene-star-repeat (regex-to-fst {} (second regex)))
-  )
-)
-
-(defn parse-to-fst
-  "Take an instaparse parse of a regex expression and return an FST"
-  [parse]
-  (reduce
-    regex-to-fst
-    {}
-    parse))
 
 ;; Notes
 ;; - a @:@ transition signifies any identity pair not in the currently declared
@@ -615,7 +597,39 @@
                                         (get-graph-edge-label
                                           n-src n-dst fst)))))
 
-(defn -main
+(defn eval-fst
+  "Evaluate the regular expression `regex` to an FST. This means evaluating the
+  parse output by instaparse."
+  [fst regex]
+  (cond
+    (= :regex-stmt regex) fst
+    (some #{(first regex)} #{:regex-cmd :stmt-trmntr}) fst
+    (= :symbol (first regex)) (process-regex-symbol (rest regex))
+    (string? regex) (eval-fst {} [:mapping regex regex])
+    (= :mapping (first regex)) (apply create-mapping (map #(eval-fst {} %) (rest regex)))
+    (= :concatenation (first regex)) (concatenate (map #(eval-fst {} %) (rest regex)))
+    (= :union (first regex))
+    (apply union-pc (map #(eval-fst {} %) (rest regex)))
+    ;; (= :union (first regex)) (perform-union (map #(eval-fst {} %) (rest regex)))
+    ;; FOX
+    (= :kleene-star-repetition (first regex)) (kleene-star-repeat (eval-fst {} (second regex)))
+  )
+)
+
+(defn parse-to-fst
+  "Take an instaparse parse of a regex expression and return an FST"
+  [parse]
+  (reduce
+    eval-fst
+    {}
+    parse))
+
+
+
+
+
+
+(defn -main-DEPRECATED
   "Provide an AT&T-formatted FST path and an input string and behold the
   apply-down-ness!"
   [& args]
@@ -626,9 +640,222 @@
         det-fst (subset-construction fst)]
     ;; (clojure.pprint/pprint parse)
     ;; (clojure.pprint/pprint fst)
-    ;; (println (clojure.string/join ", " (apply-down fst input-str)))
+    ;; (println (string/join ", " (apply-down fst input-str)))
     ;;(view-fst fst)
     ;; (view-fst det-fst)
     )
   ;; (println (apply-down (parse-att (first args)) (second args)))
 )
+
+(def cli-options
+  [["-v" "--version"]
+   ["-h" "--help"]])
+
+(defn usage [options-summary]
+  (->> ["Clojure FST -- finite-state transducer toolkit"
+        ""
+        "Usage: program-name [options]"
+        ""
+        "Options:"
+        options-summary]
+       (string/join \newline)))
+
+(defn error-msg [errors]
+  (str "The following errors occurred while parsing your command:\n\n"
+       (string/join \newline errors)))
+
+(defn exit [status msg]
+  (println msg)
+  (System/exit status))
+
+;; Holds the FSTs that the user has pushed to the stack.
+(def cmd-stack (atom []))
+
+(defn add-to-stack
+  [fst]
+  (swap! cmd-stack
+         (fn [current-cmd-stack]
+           (conj current-cmd-stack fst))))
+
+(defn get-top-fst [] (last @cmd-stack))
+
+(defn pop-stack
+  "Remove top FST from cmd-stack."
+  []
+  (swap! cmd-stack
+         (fn [current-cmd-stack]
+           (if (> (count current-cmd-stack) 0)
+            (pop current-cmd-stack)
+            current-cmd-stack))))
+
+(defn clear-stack
+  "Remove all FSTs from cmd-stack."
+  []
+  (swap! cmd-stack (fn [current-cmd-stack] [])))
+
+(defn pluralize-by-count
+  [noun count]
+  (condp = count
+    1 noun
+    (str noun "s")))
+
+(defn print-fst-stats
+  "Print brief stats about the input fst. (foma does '390 bytes. 1 state, 4
+  arcs, Cyclic.')."
+  [fst]
+  (let [states (:Q fst)
+        state-count (count states)
+        arcs (:delta fst)
+        arc-count (count arcs)]
+    (println (str
+               state-count
+               " "
+               (pluralize-by-count "state" state-count)
+               ", "
+               arc-count
+               " "
+               (pluralize-by-count "arc" arc-count)
+               "."))))
+
+(defn get-state-str-repr
+  [state fst]
+  (let [is-final (some #{state} (:F fst))
+        is-start (= state (:s0 fst))
+        state-repr (string/replace (str state) ":" "")]
+    (cond
+      (and is-final is-start) (str "Sf" state-repr)
+      is-start (str "S" state-repr)
+      is-final (str "f" state-repr)
+      :else state-repr)))
+
+(defn clean-sym
+  [sym]
+  (get {unknown-symbol "?" identity-symbol "@" epsilon-symbol "0"} sym sym))
+
+(defn get-outgoing-arcs
+  [state fst]
+  (let [outgoing
+        (filter (fn [[st-i & rest]] (= st-i state)) (:delta fst))
+        outgoing
+        (map
+          (fn [[st-i sy-i st-o sy-o]]
+            (let [sym-pair
+                  (if (= sy-i sy-o)
+                    (clean-sym sy-i)
+                    (str (clean-sym sy-i) ":" (clean-sym sy-o)))]
+              (str sym-pair " -> " (get-state-str-repr st-o fst))))
+          outgoing)]
+    (if (empty? outgoing)
+      "(no arcs)"
+      (string/join ", " outgoing))))
+
+(defn get-arc-string
+  "Return a string representation of the arcs in `fst`; something like
+  Ss0:a -> fs1.
+  fs1:(no arcs)."
+  [fst]
+  (string/join
+    \newline
+    (map
+      (fn [state]
+        (let [state-repr (get-state-str-repr state fst)
+              outgoing-arcs (get-outgoing-arcs state fst)]
+          (str state-repr ":\t" outgoing-arcs ".")))
+      (sort (:Q fst)))))
+
+(defn print-no-networks
+  []
+  (println "Not enough networks on stack. Operation requires at least 1."))
+
+(defn get-sigma-str
+  [fst]
+  (let [cleaned-sigma (map clean-sym (:sigma fst))]
+    (str "Sigma: " (string/join " " cleaned-sigma))))
+
+(defn print-net
+  "Print detailed information about the top fst on the stack.
+  Foma does:
+  Sigma: a
+  Size: 1.
+  Net: 1265003F
+  Flags: deterministic pruned minimized epsilon_free loop_free arcs_sorted_in arcs_sorted_out 
+  Arity: 1
+  Ss0:a -> fs1.
+  fs1:(no arcs).
+  "
+  []
+  (let [fst (get-top-fst)]
+    (if fst
+      (let [sigma (get-sigma-str fst)
+            arc-string (get-arc-string fst)]
+        (println (string/join \newline [sigma arc-string])))
+      (print-no-networks))))
+
+(defn regex->stack
+  "Parse `val` as a regex and add it to the global `cmd-stack` stack."
+  [val]
+  (let [parse (read-regex val)
+        fst (parse-to-fst parse)
+        determinized-fst (subset-construction fst)]
+    (print-fst-stats fst)
+    (add-to-stack fst)))
+
+(defn unknown-input
+  "User has entered an unknown command."
+  ([] (println "Yeah, um, sorry. What?"))
+  ([input] (println (str "Yeah, um, sorry. What does " input " mean?"))))
+
+(defn apply-down-top-fst
+  "Return the result of performing apply-down on the top FST on the stack."
+  [input-string]
+  (let [fst (get-top-fst)]
+    (if fst
+      (println (string/join \newline (apply-down fst input-string)))
+      (print-no-networks))))
+
+(defn remove-cmd-prefix
+  [input prefix]
+  (string/trim (string/replace-first input prefix "")))
+
+(defn parse-user-input
+  [input]
+  (cond
+    (string/starts-with? input "clear") (clear-stack)
+    (string/starts-with? input "down") (apply-down-top-fst (remove-cmd-prefix input "down"))
+    (string/starts-with? input "net") (print-net)
+    (string/starts-with? input "pop") (pop-stack)
+    (string/starts-with? input "quit") (exit 0 "Goodbye.")
+    (string/starts-with? input "regex") (regex->stack (remove-cmd-prefix input "regex"))
+    :else (unknown-input input)))
+
+(defn print-prompt
+  []
+  (print (str "cljfst[" (count @cmd-stack) "]: ")))
+
+(defn get-input
+  "Display cljfst[0]: prompt and waits for the user to enter commands and hit
+  enter."
+  []
+  (let [input
+        (do
+          (print-prompt)
+          (flush)
+          (try
+            (string/trim (read-line))
+            (catch Exception e (exit 0 "Goodbye."))))]
+    (if (empty? input)
+      (get-input)
+      (do
+        (parse-user-input input)
+        (get-input)))))
+
+(defn -main [& args]
+  (let [{:keys [options arguments errors summary]}
+        (parse-opts args cli-options)]
+    ;; Handle help and error conditions
+    (cond
+      (:help options) (exit 0 (usage summary))
+      (:version options) (exit 0 "Version go fuck yourself")
+      (not= (count arguments) 0) (exit 1 (usage summary))
+      errors (exit 1 (error-msg errors)))
+    (get-input)))

@@ -22,27 +22,29 @@
                     (:delta fst))]
               needle))
           (:Q fst))]
+    ;; (println "e-reachable for state" state "is" e-reachable)
     e-reachable))
 
 (defn e-transitionable
   [states fst]
   (let [reachable
-        (set
+        (union states (set
           (apply
             concat
             (map
               (fn [state] (get-e-reachable state fst))
-              states)))
+              states))))
         next-reachable
-        (set
+        (union states (set
           (apply
             concat
             (map
               (fn [state] (get-e-reachable state fst))
-              reachable)))]
-    (if (not-empty (difference next-reachable reachable))
-      (e-transitionable (into [] next-reachable) fst)
-      reachable)))
+              reachable))))
+        all-reachable (union reachable next-reachable)]
+    (if (not-empty (difference all-reachable reachable))
+      (e-transitionable all-reachable fst)
+        all-reachable)))
 
 (defn E
   [R fst]
@@ -183,6 +185,14 @@
     {}
     delta))
 
+(defn add-state-set-to-F?
+  "Add the set of states `state-set` to the output FST's `:F` (i.e., `out-F`)
+  if any of its state are in the input FST's `:F` (i.e., `in-F`)."
+  [state-set index-state-set in-F out-F]
+  (if (empty? (intersection state-set in-F))
+    out-F
+    (conj out-F index-state-set)))
+
 (defn process-Xs
   "Return a modified `Agenda` and `out-fst` by processing all of the symbol
   pairs X in `Xs`."
@@ -200,10 +210,8 @@
                                    index-T (index S)))
             in-F (set (:F in-fst)) ;; todo should already be a set...
             out-F (get-in result [:out-fst :F])
-            result (if (empty? (intersection T in-F))
-                     result
-                     (assoc-in result [:out-fst :F]
-                               (conj out-F index-T)))
+            out-F (add-state-set-to-F? T index-T in-F out-F)
+            result (assoc-in result [:out-fst :F] out-F)
             ;; Add transition δ3(INDEX(S), X, INDEX(T ))
             delta (get-in result [:out-fst :delta])
             result (assoc-in result [:out-fst :delta]
@@ -242,17 +250,19 @@
                sy-o])
             (:delta fst)))})
 
+;; Add t0 to F ...
 (defn subset-construction
   "Determinize the input FST via the SubsetConstruction algorithm (cf. Rabin
   and Scott 1959, Hulden 2009 p. 73)."
   [in-fst]
   (let [Agenda #{(e-closure #{(:s0 in-fst)} in-fst)}
         t0 (index (first Agenda))
+        out-F (add-state-set-to-F? (first Agenda) t0 (:F in-fst) #{})
         out-fst {:sigma (:sigma in-fst)
                  :Q #{}
                  :s0 t0
-                 :F #{}
+                 :F out-F  ;; WARNING: not explicit in Hulden algorithm...
                  :delta #{}}
-        new-fst (process-Agenda Agenda in-fst out-fst)]
-    (remove-unreachable
-      (state-ints->kws new-fst))))
+        new-fst (process-Agenda Agenda in-fst out-fst)
+        new-fst (state-ints->kws new-fst)]
+    (remove-unreachable new-fst)))
