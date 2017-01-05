@@ -23,7 +23,9 @@
                                    pluralize-by-count
                                    unknown-symbol]]
             [cljfst.apply :refer [apply-down]]
-            [cljfst.regex :refer [read-regex
+            [cljfst.regex :refer [is-cyclic
+                                  count-paths
+                                  read-regex
                                   parse-to-fst]]
             [cljfst.determinize :refer [subset-construction]]))
 
@@ -165,6 +167,20 @@
 ;; Textual FST representation (e.g., for `(print) net` command.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;; TODO:
+;; - Get size of FST in bytes. For some ideas on how to get the size of a
+;;   Clojure data structure in bytes, ;; see
+;;   https://groups.google.com/forum/#!topic/clojure/dzelKZrIoH4
+;; - If the FST is acyclic, count its paths and report them. A path is a
+;;   sequence of arcs between a start state and an end state.
+
+(defn get-cyclic-or-path-count
+  [fst]
+  (if (is-cyclic fst)
+    ", Cyclic"
+    (let [path-count (count-paths fst)]
+      (str ", " path-count " " (pluralize-by-count "path" path-count)))))
+
 (defn print-fst-stats
   "Print brief stats about the input fst. (foma reports look like '390 bytes. 1
   state, 4 arcs, Cyclic.')."
@@ -172,7 +188,8 @@
   (let [states (:Q fst)
         state-count (count states)
         arcs (:delta fst)
-        arc-count (count arcs)]
+        arc-count (count arcs)
+        cyclic-or-path-count (get-cyclic-or-path-count fst)]
     (println (str
                state-count
                " "
@@ -181,6 +198,7 @@
                arc-count
                " "
                (pluralize-by-count "arc" arc-count)
+               cyclic-or-path-count
                "."))))
 
 (defn get-state-str-repr

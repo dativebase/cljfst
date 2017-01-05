@@ -91,10 +91,10 @@
   [target-fst, conflictee-fst]
   (let [state-fixer (get-unique-states (:Q target-fst) (:Q conflictee-fst))]
     {:sigma (set (concat (:sigma target-fst) (:sigma conflictee-fst)))
-     :Q (into [] (vals state-fixer))
+     :Q (set (vals state-fixer))
      :s0 ((:s0 target-fst) state-fixer)
-     :F (into [] (map #(% state-fixer) (:F target-fst)))
-     :delta (into [] (map
+     :F (set (map #(% state-fixer) (:F target-fst)))
+     :delta (set (map
                        (fn [[st-i sym-i st-o sym-o]]
                          (let [st-i-fixed (st-i state-fixer)
                                st-o-fixed (st-o state-fixer)]
@@ -126,9 +126,9 @@
             :s0
             :s0)]
       (assoc
-        (assoc tmp :Q (into [] (set (concat (:Q fst1 ) (conj (:Q tmp) :s0)))))
+        (assoc tmp :Q (set (concat (:Q fst1 ) (conj (:Q tmp) :s0))))
         :delta
-        (into [] (concat (:delta tmp) (:delta fst1)))))))
+        (concat (:delta tmp) (:delta fst1))))))
 
 (defn inc-all-states
   "Increment all states in `fst`."
@@ -464,7 +464,7 @@
   [fst1 fst2]
   (product-construction fst1 fst2 :subtraction))
 
-;; Reverse
+;; Reversal
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defn get-e-transitions
@@ -509,6 +509,139 @@
            :s0 new-initial
            :F new-final
            :delta (reverse-delta (:delta fst)))))
+
+;; Cyclicity
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defn get-leaves
+  "Get all leaves in the FST."
+  [fst]
+  (filter
+    (fn [state]
+      (let [outgoing-transitions
+            (filter
+              (fn [[st-i _ st-o __]] (= state st-i))
+              (:delta fst))]
+        (if (= (count outgoing-transitions) 0) true false)))
+    (:Q fst)))
+
+(defn remove-leaf
+  "Remove state `leaf` from `fst`."
+  [fst leaf]
+  (let [new-Q (difference (:Q fst) #{leaf})
+        new-delta (filter (fn [[_ __ st-o ___]] (not= leaf st-o)) (:delta fst))]
+    (assoc fst :Q new-Q :delta new-delta)))
+
+(defn is-cyclic
+  "Return true if the FST is cyclic."
+  [fst]
+  (if (= 0 (count (:delta fst)))
+    false
+    (let [leaves (get-leaves fst)]
+      (if (= 0 (count leaves))
+        true
+        (recur (remove-leaf fst (first leaves)))))))
+
+(defn get-out-arcs
+  "Return a hashmap mapping all states reachable from `state` to the number of
+  arcs (transitions) between `state` and the reachable state."
+  [state fst]
+  (reduce
+    (fn [container [st-i _ st-o __]]
+      (if (= state st-i)
+        (assoc container st-o (inc (get container st-o 0)))
+        container))
+    {}
+    (:delta fst)))
+
+(defn count-to-final-arcs
+  "Return a count of the number of arcs in `out-arcs` that lead to the final
+  state `final`."
+  [out-arcs final]
+  (reduce +
+          (map
+            (fn [[st arc-count]]
+              (if (= st final) arc-count 0))
+            out-arcs)))
+
+(defn count-path-start-final
+  "Return the number of paths between start state `start` and final state
+  `final`. `factor` is a multiplicative factor indicating how many paths there
+  are to our present `start` state."
+  ([start final fst] (count-path-start-final start final fst 1))
+  ([start final fst factor]
+   (let [out-arcs (get-out-arcs start fst)
+         final-count (* factor (count-to-final-arcs out-arcs final))
+         non-final-out-arcs
+         (filter (fn [[dest-state arc-count]]
+                   (not= final dest-state)) out-arcs)]
+     (+ final-count
+        (reduce
+          +
+          (map
+            (fn [[dest-state arc-count]]
+              (count-path-start-final
+                dest-state final fst (* factor arc-count)))
+            non-final-out-arcs))))))
+
+(defn count-paths
+  "Return the number of paths in the acyclic `fst`. A path is a sequence of
+  arcs between a start state and an end state.
+  - start with start state as agenda
+  - count all transitions from 
+  "
+  [fst]
+  (reduce
+    +
+    (map
+      (fn [[start final]] (count-path-start-final start final fst))
+      (cart [#{(:s0 fst)} (:F fst)]))))
+
+
+;; Complement
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; With the boolean operations we can construct the complement ¬L for a
+;; regular language (recognizer) L by Σ∗ − L. This operation is not well
+;; defined for regular relations (transdu- cers); however, we can define the
+;; path complement of a transducer to be ((Σ:Σ) ∪ (Σ:ε) ∪ (ε:Σ))∗ − T .
+;; This denotes the set of all transduction paths, except the ones represented
+;; by T.
+
+;; The FST (Sigma:Sigma): 'The label pair Σ:Σ is represented as a FSM with
+;; two paths, one denoting @ and the other ?:?.'."
+(def Sigma-Sigma
+  {:sigma #{unknown-symbol identity-symbol}
+   :Q #{:s0}
+   :s0 :s0
+   :F #{:s0}
+   :delta #{[:s0 unknown-symbol :s0 unknown-symbol]
+            [:s0 identity-symbol :s0 identity-symbol]}})
+
+;; The FST (Sigma:epsilon)."
+;; TODO: it seems to me, given the meaning of complement and the use of
+;; (Sigma:epsilon) in its definition, that (Sigma:epsilon) should map "cad" to
+;; "cd", "ca", "c", "", etc.
+(def Sigma-epsilon
+  {:sigma #{epsilon-symbol identity-symbol}
+   :Q #{:s0}
+   :s0 :s0
+   :F #{:s0}
+   :delta #{[:s0 unknown-symbol :s0 epsilon-symbol]}})
+
+;; The FST (epsilon:Sigma)."
+(def epsilon-Sigma
+  {:sigma #{epsilon-symbol identity-symbol}
+   :Q #{:s0}
+   :s0 :s0
+   :F #{:s0}
+   :delta #{[:s0 epsilon-symbol :s0 unknown-symbol]}})
+
+(defn path-complement
+  "Return the path complement of `fst`, i.e., the set of regular relations
+  *not* in `fst`."
+  [fst]
+  true)
 
 
 ;; General Regex Evaluation

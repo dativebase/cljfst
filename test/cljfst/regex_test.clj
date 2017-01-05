@@ -298,3 +298,59 @@
       (is (= "cad" (first (apply-down fst-rev "cad"))))
       (is (= "dbc" (first (apply-down fst-rev "dac")))))))
 
+(deftest test-Sigma-Sigma
+  (testing "The FST mapping any symbol to any other, including itself, i.e.,
+           (Sigma:Sigma)."
+    (let [fst Sigma-Sigma]
+      (is (some #{"cad"} (apply-down fst "cad")))
+      (is (some #{"???"} (apply-down fst "cad")))
+      (is (some #{"c?d"} (apply-down fst "cad"))))))
+
+(deftest test-Sigma-epsilon
+  (testing "The FST mapping any symbol to the empty string, i.e.,
+           (Sigma:epsilon)."
+    (let [fst Sigma-epsilon]
+      ;; (pprint (apply-down fst "cad"))
+      (is (= "" (first (apply-down fst "cad"))))
+      (is (= "" (first (apply-down fst ""))))
+      (is (= "" (first (apply-down fst "monkey bark")))))))
+
+(deftest test-epsilon-Sigma
+  (testing "The FST mapping the empty string to any symbol, i.e.,
+           (epsilon:Sigma)."
+    (let [fst epsilon-Sigma]
+      (pprint fst)
+      ;; WARNING: apply-down on this FST will cause a StackOverflowError.
+      ;; (pprint (apply-down fst ""))
+      ;; (pprint (apply-down fst "cad"))
+      ;; (is (= "" (first (apply-down fst "cad"))))
+      ;; (is (= "" (first (apply-down fst ""))))
+      ;; (is (= "" (first (apply-down fst "monkey bark"))))
+      )))
+
+(deftest test-is-cyclic
+  (testing "If we can correctly identify cyclic FSTs."
+    (let [fst epsilon-Sigma]
+      (is (= true (is-cyclic fst))))
+    (let [regex-cmd "a* ;"
+          parse (read-regex regex-cmd)
+          fst (parse-to-fst parse)]
+      (is (= true (is-cyclic fst))))
+    (let [regex-cmd "a|b ;"
+          parse (read-regex regex-cmd)
+          fst (parse-to-fst parse)]
+      (is (= false (is-cyclic fst))))
+    (let [regex-cmd "a:b c:d ;"
+          parse (read-regex regex-cmd)
+          fst (parse-to-fst parse)]
+      (is (= false (is-cyclic fst))))))
+
+;; WARNING: more tests on `count-paths` are needed, with more complex acyclic
+;; FSTs.
+(deftest test-count-paths
+  (testing "If we can correctly count paths in acyclic FSTs."
+    (let [regex-cmd "[a:b c:d] | [a:x c:x] | [a:y c:y] ;"
+          parse (read-regex regex-cmd)
+          fst (parse-to-fst parse)]
+      (is (= false (is-cyclic fst)))
+      (is (= 3 (count-paths fst))))))

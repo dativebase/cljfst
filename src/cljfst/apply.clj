@@ -22,7 +22,7 @@
            (or (= epsilon-symbol tr-sy-i)
                (= input tr-sy-i)
                (= unknown-symbol tr-sy-i)
-               (= identity tr-sy-i)
+               (= identity-symbol tr-sy-i)
                (string/starts-with? input tr-sy-i))))
     (:delta fst)))
 
@@ -49,21 +49,22 @@
           outputs)]
     [new-input new-outputs]))
 
+;; TODO: apply-down should first ascertain whether the fst is cyclic. If it is,
+;; it should stop recurring after generating a certain threshold of output
+;; strings.
 (defn apply-down
   "Perform the apply down transformation on string `input` using the FST `fst`"
   ([fst input] (apply-down fst input (:s0 fst) [""]))
   ([fst input state outputs]
-    (if (in-final-with-empty-input input state fst)
-        outputs
-        (let [inpchr (str (first input))
-              keychr (if (some #{inpchr} (:sigma fst)) inpchr identity-symbol)
-              transitions (get-transitions fst state input)]
-          (reduce
-            concat
-            []
-            (map
-              (fn [[_ sy-i next-state sy-o]]
-                (let [[new-input new-outputs]
-                      (consume-input input sy-i sy-o outputs)]
-                  (apply-down fst new-input next-state new-outputs)))
-              transitions))))))
+   (if (in-final-with-empty-input input state fst)
+     outputs
+     (let [transitions (get-transitions fst state input)]
+       (reduce
+         concat
+         []
+         (map
+           (fn [[_ sy-i next-state sy-o]]
+             (let [[new-input new-outputs]
+                   (consume-input input sy-i sy-o outputs)]
+               (apply-down fst new-input next-state new-outputs)))
+           transitions))))))
