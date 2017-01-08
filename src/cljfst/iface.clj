@@ -270,8 +270,8 @@
     Arity: 1
     Ss0:a -> fs1.
     fs1:(no arcs)."
-  []
-  (let [fst (get-top-fst)]
+  ([] (print-net (get-top-fst)))
+  ([fst]
     (if fst
       (let [sigma (get-sigma-str fst)
             arc-string (get-arc-string fst)]
