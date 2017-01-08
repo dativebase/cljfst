@@ -202,9 +202,7 @@
   states that are equivalent and can be merged."
   [fst]
   (let [final-states (:F fst)
-        non-final-states (difference
-                           (set (:Q fst))
-                           (set final-states))
+        non-final-states (difference (:Q fst) final-states)
         Pi [final-states non-final-states]
         hcc-agenda
         (get-hcc-agenda final-states non-final-states
@@ -296,10 +294,7 @@
   "
   [fst]
   (let [final-states (:F fst)
-        non-final-states (into []
-                               (difference
-                                 (set (:Q fst))
-                                 (set final-states)))
+        non-final-states (difference (:Q fst) final-states)
         Pi [final-states non-final-states]
         hco-agenda
         (map
@@ -333,26 +328,26 @@
   "Minimize a vector of states; i.e., remove the redundant ones, given a
   `fixer` hash derived from a minimization algorithm."
   [state-set fixer]
-  (into [] (set (map (fn [state] (get fixer state state)) state-set))))
+  (set (map (fn [state] (get fixer state state)) state-set)))
 
 (defn minimize-delta
   "Minimize delta (the transition matrix of an FST), given `fixer` a mapping
   from states to their replacements."
   [delta fixer]
-  (into [] (set (map (fn [[st-i sy-i st-o sy-o]]
-         [(get fixer st-i st-i)
-          sy-i
-          (get fixer st-o st-o)
-          sy-o])
-       delta))))
+  (set (map (fn [[st-i sy-i st-o sy-o]]
+              [(get fixer st-i st-i) sy-i (get fixer st-o st-o) sy-o])
+            delta)))
 
 (defn minimize-hcc
   "Perform Hopcroft canonical minimization."
   [fst]
   (let [equiv-classes (hopcroft-canonical-equiv-classes fst)
-        fixer (get-minimize-fixer equiv-classes (:Q fst))]
-    {:sigma (:sigma fst)
-     :Q (minimize-state-set (:Q fst) fixer)
-     :s0 :s0
-     :F (minimize-state-set (:F fst) fixer)
-     :delta (minimize-delta (:delta fst) fixer)}))
+        fixer (get-minimize-fixer equiv-classes (:Q fst))
+        result
+        {:sigma (:sigma fst)
+         :Q (minimize-state-set (:Q fst) fixer)
+         :s0 :s0
+         :F (minimize-state-set (:F fst) fixer)
+         :delta (minimize-delta (:delta fst) fixer)}]
+    result
+    ))

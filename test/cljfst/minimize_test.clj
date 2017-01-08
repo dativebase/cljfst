@@ -19,15 +19,14 @@
 (deftest test-hopcroft-canonical-minimization
   (testing "Hopcroft canonical minimization algorithm works"
     (let [minimized-fst (minimize-hcc non-minimized-fst)
-          expected-delta (set [
-                              [:s0 "a" :s1 "a"]
-                              [:s0 "b" :s0 "b"]
-                              [:s1 "a" :s1 "a"]
-                              [:s1 "b" :s3 "b"]
-                              [:s3 "a" :s1 "a"]
-                              [:s3 "b" :s4 "b"]
-                              [:s4 "b" :s0 "b"]
-                              [:s4 "a" :s1 "a"]])]
+          expected-delta #{[:s0 "a" :s1 "a"]
+                           [:s0 "b" :s0 "b"]
+                           [:s1 "a" :s1 "a"]
+                           [:s1 "b" :s3 "b"]
+                           [:s3 "a" :s1 "a"]
+                           [:s3 "b" :s4 "b"]
+                           [:s4 "b" :s0 "b"]
+                           [:s4 "a" :s1 "a"]}]
       (is (= #{:s0 :s1 :s3 :s4} (set (:Q minimized-fst))))
-      (is (= [:s4] (:F minimized-fst)))
+      (is (= #{:s4} (:F minimized-fst)))
       (is (= expected-delta (set (:delta minimized-fst)))))))
