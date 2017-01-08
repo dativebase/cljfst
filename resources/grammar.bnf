@@ -62,10 +62,17 @@ reserved-symbols = (
 
 regex-cmd = "regex"
 
-union-operator = "|"
+(* union-operator = "|" *)
+union-operator = #"[\|∪]"
+
 concatenation-operator = " "
-intersection-operator = "&"
-complement-operator = "~"
+
+(* intersection-operator = "&" *)
+intersection-operator = #"[&∩]"
+
+(* complement-operator = "~" *)
+complement-operator = #"[~¬]"
+
 other-complement = "\\"
 
 word-edge = ".#."
@@ -107,6 +114,8 @@ symbol = (
 
 concatenation = regex <concatenation-operator> regex
 union = regex <#"\s*"> <union-operator> <#"\s*"> regex
+intersection = regex <#"\s*"> <intersection-operator> <#"\s*"> regex
+complement = <complement-operator> <#"\s*"> regex
 <grouping> = left-grouping-bracket regex right-grouping-bracket
 mapping = symbol |
           symbol cross-product symbol |
@@ -119,6 +128,8 @@ kleene-plus-repetition = regex kleene-plus
         grouping |
         concatenation |
         union |
+        complement |
+        intersection |
         kleene-star-repetition |
         kleene-plus-repetition |
         mapping
