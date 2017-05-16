@@ -264,5 +264,6 @@
                  :F out-F  ;; WARNING: not explicit in Hulden algorithm...
                  :delta #{}}
         new-fst (process-Agenda Agenda in-fst out-fst)
-        new-fst (state-ints->kws new-fst)]
-    (remove-unreachable new-fst)))
+        new-fst (state-ints->kws new-fst)
+        result (remove-unreachable new-fst)]
+    result))

@@ -33,19 +33,18 @@
 
 (deftest test-subset-construction
   (testing "SubsetConstruction as determinization works"
-    (let [regex-cmd "a:b c:d ;"
-          parse (read-regex regex-cmd)
-          fst (parse-to-fst parse)
+    (let [fst non-determinized-concat-fst
           determinized-fst (subset-construction fst)]
       (is (= "bd" (first (apply-down fst "ac"))))
       (is (= "bd" (first (apply-down determinized-fst "ac"))))
       (is (= nil (first (apply-down fst "a"))))
       (is (= nil (first (apply-down determinized-fst "a"))))
-      (is (not (empty? (filter
+      (is (= true
+             (not (empty? (filter
                          (fn [[st-i sy-i st-o sy-o]]
                            (and (= sy-i epsilon-symbol)
                                 (= sy-o epsilon-symbol)))
-                         (:delta fst)))))
+                         (:delta fst))))))
       (is (empty? (filter
                     (fn [[st-i sy-i st-o sy-o]]
                       (and (= sy-i epsilon-symbol)

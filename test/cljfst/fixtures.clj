@@ -132,3 +132,12 @@
    :F #{:s0}
    :delta #{[:s0 unknown-symbol :s0 "d"]
             [:s0 "d" :s0 "d"]}})
+
+;; non-determinized "a:b c:d ;"
+(def non-determinized-concat-fst
+  {:sigma #{"d" "a" "b" "c"},
+   :Q #{:s0 :s1 :s3 :s2},
+   :s0 :s0,
+   :F #{:s3},
+   :delta #{[:s2 "c" :s3 "d"] [:s1 "@0@" :s2 "@0@"] [:s0 "a" :s1 "b"]}})
+

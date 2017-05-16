@@ -7,7 +7,7 @@
 ;;
 ;; - AT&T parsing
 ;; - GraphViz/rhizome.viz FST display (`view net`)
-;; - the FST stack
+;; - the FST stack (FILO)
 ;; - textual FST display (`print net`)
 ;; - the command-line interface (tools.cli)
 
@@ -380,7 +380,7 @@
         (get-input)))))
 
 (defn cljfst-cli
-  [& args]
+  [args]
   (let [{:keys [options arguments errors summary]}
         (parse-opts args cli-options)]
     (cond

@@ -5,11 +5,6 @@
 ;; This module contains functionality for parsing (reading )input regex and
 ;; rewrite rule expressions and converting (evaluating) them to FSTs.
 
-;; TODO:
-;; - transducer reversal: the reversal of a transducer may be accomplished by
-;;   designating the set of final states initial and vice versa, and replacing
-;;   each transition δ(p, x, q) with δ(q, x, p).
-
 (ns cljfst.regex
   (:gen-class)
   (:require [clojure.pprint :refer [pprint]]
@@ -26,7 +21,165 @@
                                    unknown-symbol
                                    identity-symbol
                                    get-next-free-state]]
-            [cljfst.determinize :refer [subset-construction]]))
+            [cljfst.determinize :refer [subset-construction]]
+            [cljfst.minimize :refer [minimize-hcc]]))
+
+;; "Failing to minimize FSMs after each call to a determinization or a product
+;; construction algorithm will have exponential effects that compound very
+;; quickly in any complex system." (Hulden p. 75)
+(defn determinize-minimize
+  "Determinize and then minimize `fst`. Each regex operator should call this
+  function on its FST output prior to returning it."
+  [fst]
+  (minimize-hcc (subset-construction fst)))
+
+;; Merge Alphabets-related functions
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; Notes from Hulden (2009)
+;; - a @:@ transition signifies any identity pair not in the currently declared
+;;   alphabet
+;; - the ?-symbol on one side of a symbol pair signifies any symbol also not in
+;;   the alphabet
+;; - the combination ?:? is reserved for the non-identity relation of any
+;;   symbol pair where each symbol is outside the alphabet.
+
+(defn get-unkn-unkn-trs
+  "Return new transitions to replace a ?:? transition, given the symbols in N."
+  [N st-i st-o]
+  (let [diff
+        (map
+          (fn [[n1 n2]] [st-i n1 st-o n2])
+          (filter (fn [[n1 n2]] (not= n1 n2)) (cart [N N])))
+        unkn-n
+        (map (fn [n] [st-i unknown-symbol st-o n]) N)
+        n-unkn
+        (map (fn [n] [st-i n st-o unknown-symbol]) N)]
+    (set (concat diff unkn-n n-unkn))))
+
+(defn merge-alphabet
+  "Take an FST and a set of symbols not in its alphabet and merge those symbols
+  in to its delta transition."
+  [fst N]
+  (let [delta
+        (reduce
+          (fn [container [st-i sy-i st-o sy-o]]
+            (cond
+              (and (= sy-i identity-symbol)
+                   (= sy-o identity-symbol))
+              (apply conj container (map (fn [sy] [st-i sy st-o sy]) N))
+              (= sy-o unknown-symbol)
+              (apply conj container (map (fn [sy] [st-i sy-i st-o sy]) N))
+              (= sy-i unknown-symbol)
+              (apply conj container (map (fn [sy] [st-i sy st-o sy-o]) N))
+              (and (= sy-i unknown-symbol)
+                   (= sy-o unknown-symbol))
+              (apply conj container (get-unkn-unkn-trs N st-i st-o))
+              :else
+              (conj container [st-i sy-i st-o sy-o])))
+          (:delta fst)
+          (:delta fst))]
+    (assoc fst :delta delta)))
+
+;; "Before each operation where two transducers are input arguments, their
+;;  respective alphabets are merged or ‘harmonized’, converting some of the
+;;  unknown symbols to known symbols if they are present in one of the two
+;;  machines being combined."
+
+(defn merge-alphabets
+  "Merge the alphabets of two fsts. Takes two fsts and returns them, with
+  modified delta transition values"
+  [fst1 fst2]
+  (let [N1 (difference (:sigma fst2) (:sigma fst1))
+        N2 (difference (:sigma fst1) (:sigma fst2))]
+    (list (merge-alphabet fst1 N1) (merge-alphabet fst2 N2))))
+
+;; Cyclicity
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defn get-leaves
+  "Get all leaves in the FST."
+  [fst]
+  (filter
+    (fn [state]
+      (let [outgoing-transitions
+            (filter
+              (fn [[st-i _ st-o __]] (= state st-i))
+              (:delta fst))]
+        (if (= (count outgoing-transitions) 0) true false)))
+    (:Q fst)))
+
+(defn remove-leaf
+  "Remove state `leaf` from `fst`."
+  [fst leaf]
+  (let [new-Q (difference (:Q fst) #{leaf})
+        new-delta (filter (fn [[_ __ st-o ___]] (not= leaf st-o)) (:delta fst))]
+    (assoc fst :Q new-Q :delta new-delta)))
+
+(defn is-cyclic
+  "Return true if the FST is cyclic."
+  [fst]
+  (if (= 0 (count (:delta fst)))
+    false
+    (let [leaves (get-leaves fst)]
+      (if (= 0 (count leaves))
+        true
+        (recur (remove-leaf fst (first leaves)))))))
+
+(defn get-out-arcs
+  "Return a hashmap mapping all states reachable from `state` to the number of
+  arcs (transitions) between `state` and the reachable state."
+  [state fst]
+  (reduce
+    (fn [container [st-i _ st-o __]]
+      (if (= state st-i)
+        (assoc container st-o (inc (get container st-o 0)))
+        container))
+    {}
+    (:delta fst)))
+
+(defn count-to-final-arcs
+  "Return a count of the number of arcs in `out-arcs` that lead to the final
+  state `final`."
+  [out-arcs final]
+  (reduce +
+          (map
+            (fn [[st arc-count]]
+              (if (= st final) arc-count 0))
+            out-arcs)))
+
+(defn count-path-start-final
+  "Return the number of paths between start state `start` and final state
+  `final`. `factor` is a multiplicative factor indicating how many paths there
+  are to our present `start` state."
+  ([start final fst] (count-path-start-final start final fst 1))
+  ([start final fst factor]
+   (let [out-arcs (get-out-arcs start fst)
+         final-count (* factor (count-to-final-arcs out-arcs final))
+         non-final-out-arcs
+         (filter (fn [[dest-state arc-count]]
+                   (not= final dest-state)) out-arcs)]
+     (+ final-count
+        (reduce
+          +
+          (map
+            (fn [[dest-state arc-count]]
+              (count-path-start-final
+                dest-state final fst (* factor arc-count)))
+            non-final-out-arcs))))))
+
+(defn count-paths
+  "Return the number of paths in the acyclic `fst`. A path is a sequence of
+  arcs between a start state and an end state.
+  - start with start state as agenda
+  - count all transitions from 
+  "
+  [fst]
+  (reduce
+    +
+    (map
+      (fn [[start final]] (count-path-start-final start final fst))
+      (cart [#{(:s0 fst)} (:F fst)]))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; read
@@ -111,7 +264,8 @@
   - make all states in L1 nonfinal
   - make initial state of L1 the initial state of L3"
   [[fst1 fst2]]
-  (let [fst2-no-confl (remove-state-conflicts fst2 fst1)]
+  (let [[fst1 fst2] (merge-alphabets fst1 fst2)
+        fst2-no-confl (remove-state-conflicts fst2 fst1)]
     (let [tmp
           (assoc
             (reduce
@@ -124,11 +278,16 @@
               fst2-no-confl
               (:F fst1))
             :s0
-            :s0)]
-      (assoc
-        (assoc tmp :Q (set (concat (:Q fst1 ) (conj (:Q tmp) :s0))))
-        :delta
-        (concat (:delta tmp) (:delta fst1))))))
+            :s0)
+          result
+          (assoc
+            tmp
+            :Q (set (concat (:Q fst1 ) (conj (:Q tmp) :s0)))
+            :delta (concat (:delta tmp) (:delta fst1)))]
+      ;; For some reason, Hopcroft canonical minimization post concatenation
+      ;; will change the semantics of the FST and will (may?) make it cyclic
+      ;; when it was previously acyclic.
+      (subset-construction result))))
 
 (defn inc-all-states
   "Increment all states in `fst`."
@@ -183,7 +342,9 @@
                          [prev-final-state epsilon-symbol :s0
                           epsilon-symbol])
                        prev-final-states)))}]
-    (subset-construction result)))
+    (subset-construction result)
+    ;; (determinize-minimize result)
+    ))
 
 (defn process-regex-symbol
   "Process a single symbol (e.g., 'a' or '0') as a regular expression."
@@ -195,67 +356,6 @@
     (= :nil-symbol (first symbol-parse)) epsilon-symbol
     (= :identity-symbol (first symbol-parse)) identity-symbol))
 
-
-;; Merge Alphabets-related functions
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-;; Notes from Hulden (2009)
-;; - a @:@ transition signifies any identity pair not in the currently declared
-;;   alphabet
-;; - the ?-symbol on one side of a symbol pair signifies any symbol also not in
-;;   the alphabet
-;; - the combination ?:? is reserved for the non-identity relation of any
-;;   symbol pair where each symbol is outside the alphabet.
-
-(defn get-unkn-unkn-trs
-  "Return new transitions to replace a ?:? transition, given the symbols in N."
-  [N st-i st-o]
-  (let [diff
-        (map
-          (fn [[n1 n2]] [st-i n1 st-o n2])
-          (filter (fn [[n1 n2]] (not= n1 n2)) (cart [N N])))
-        unkn-n
-        (map (fn [n] [st-i unknown-symbol st-o n]) N)
-        n-unkn
-        (map (fn [n] [st-i n st-o unknown-symbol]) N)]
-    (set (concat diff unkn-n n-unkn))))
-
-(defn merge-alphabet
-  "Take an FST and a set of symbols not in its alphabet and merge those symbols
-  in to its delta transition."
-  [fst N]
-  (let [delta
-        (reduce
-          (fn [container [st-i sy-i st-o sy-o]]
-            (cond
-              (and (= sy-i identity-symbol)
-                   (= sy-o identity-symbol))
-              (apply conj container (map (fn [sy] [st-i sy st-o sy]) N))
-              (= sy-o unknown-symbol)
-              (apply conj container (map (fn [sy] [st-i sy-i st-o sy]) N))
-              (= sy-i unknown-symbol)
-              (apply conj container (map (fn [sy] [st-i sy st-o sy-o]) N))
-              (and (= sy-i unknown-symbol)
-                   (= sy-o unknown-symbol))
-              (apply conj container (get-unkn-unkn-trs N st-i st-o))
-              :else
-              (conj container [st-i sy-i st-o sy-o])))
-          (:delta fst)
-          (:delta fst))]
-    (assoc fst :delta delta)))
-
-;; "Before each operation where two transducers are input arguments, their
-;;  respective alphabets are merged or ‘harmonized’, converting some of the
-;;  unknown symbols to known symbols if they are present in one of the two
-;;  machines being combined."
-
-(defn merge-alphabets
-  "Merge the alphabets of two fsts. Takes two fsts and returns them, with
-  modified delta transition values"
-  [fst1 fst2]
-  (let [N1 (difference (:sigma fst2) (:sigma fst1))
-        N2 (difference (:sigma fst1) (:sigma fst2))]
-    (list (merge-alphabet fst1 N1) (merge-alphabet fst2 N2))))
 
 
 ;; Product Construction-related functions: union, intersection, subtraction
@@ -434,6 +534,7 @@
   `OP`. Note: the input FSTs must be e-free."
   [fst1 fst2 OP]
   (let [[fst1 fst2] (merge-alphabets fst1 fst2)
+        fst2 (remove-state-conflicts fst2 fst1)
         s0 (:s0 fst1)
         t0 (:s0 fst2)
         F1 (:F fst1)
@@ -444,13 +545,18 @@
               :s0 [s0 t0]
               :F #{}
               :delta #{}}
-        fst3 (process-pc-agenda Agenda fst1 fst2 fst3)]
-    (remove-dead-states
-      (state-pairs->states
-        (assoc fst3 :F
-              (set (filter
-                      (fn [state] (state-final? state F1 F2 OP))
-                      (:Q fst3))))))))
+        fst3 (process-pc-agenda Agenda fst1 fst2 fst3)
+        result (subset-construction
+                 (remove-dead-states
+                   (state-pairs->states
+                     (assoc fst3 :F
+                            (set (filter
+                                   (fn [state] (state-final? state F1 F2 OP))
+                                   (:Q fst3)))))))
+        result-is-cyclic (is-cyclic result)
+        min-result (minimize-hcc result)
+        min-result-is-cyclic (is-cyclic min-result)]
+    (if (= result-is-cyclic min-result-is-cyclic) result result)))
 
 (defn union-pc
   [fst1 fst2]
@@ -463,6 +569,159 @@
 (defn subtraction-pc
   [fst1 fst2]
   (product-construction fst1 fst2 :subtraction))
+
+;; Cross-Product (Hulden 2009, p. 53)
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defn project
+  [delta side]
+  (reduce
+    (fn [container [st-i sy-i st-o sy-o]]
+      (let [symbol (if (some #{side} [:upper :left]) sy-i sy-o)]
+        (assoc container
+               :new-delta (conj (:new-delta container) [st-i symbol st-o
+                                                        symbol])
+               :new-sigma (conj (:new-sigma container) symbol))))
+    {:new-delta #{} :new-sigma #{}}
+    delta))
+
+(defn fst->fsa
+  "Convert FST `fst` into an FSA. The `side` param indicates which side of the
+  symbol mappings should be used. If `side` is `:upper` or `:left`, 'a:b' would
+  become 'a'; if `:lower` or `:right` is passed, 'a:b' would become 'b'."
+  ([fst] (fst->fsa fst :upper))
+  ([fst side]
+   (let [{new-delta :new-delta new-sigma :new-sigma}
+         (project (:delta fst) side)]
+     (assoc fst
+            :delta new-delta
+            :sigma new-sigma))))
+
+(defn add-insertion-transitions
+  [p F1 delta-q result]
+  (if (some #{p} F1)
+    (reduce
+      (fn [result [q y q-p sy-o]]
+        (assoc-in result
+                  [:fst3 :delta]
+                  (conj
+                    (get-in result [:fst3 :delta])
+                    [[p q] epsilon-symbol [p q-p] y])))
+      result
+      delta-q)
+    result))
+
+(defn add-elision-transitions
+  [q F2 delta-p result]
+  (if (some #{q} F2)
+    (reduce
+      (fn [result [p x p-p sy-o]]
+        (assoc-in result
+                  [:fst3 :delta]
+                  (conj
+                    (get-in result [:fst3 :delta])
+                    [[p q] x [p-p q] epsilon-symbol])))
+      result
+      delta-p)
+    result))
+
+(defn process-cp-transitions
+  [fst3 [p q] Agenda index delta-p delta-q]
+  (let [result
+        (reduce
+          (fn [result [_ x-i p-pr x-o]]
+            (let [[__ x-i q-pr x-o] (get-trans-match q x-i x-o delta-q)
+                  curr-delta (get-in result [:fst3 :delta])
+                  delta (conj curr-delta [[p q] x-i [p-pr q-pr] x-o])
+                  fst3 (assoc (:fst3 result) :delta delta)
+                  Agenda (:Agenda result)
+                  index (:index result)]
+              (if (some #{[p-pr q-pr]} index)
+                (assoc result :fst3 fst3)
+                (assoc result
+                      :fst3 (assoc fst3 :Q (conj (:Q fst3) [p-pr q-pr]))
+                      :Agenda (conj Agenda [p-pr q-pr])
+                      :index (conj index [p-pr q-pr])))))
+          {:fst3 fst3 :Agenda Agenda :index index}
+          delta-p)
+        result
+        (reduce
+          (fn [result [_ x-i q-pr x-o]]
+            (let [[__ x-i p-pr x-o] (get-trans-match p x-i x-o delta-p)
+                  curr-delta (get-in result [:fst3 :delta])
+                  delta (conj curr-delta [[p q] x-i [p-pr q-pr] x-o])
+                  fst3 (assoc (:fst3 result) :delta delta)
+                  Agenda (:Agenda result)
+                  index (:index result)]
+              (if (some #{[p-pr q-pr]} index)
+                (assoc result :fst3 fst3)
+                (assoc result
+                      :fst3 (assoc fst3 :Q (conj (:Q fst3) [p-pr q-pr]))
+                      :Agenda (conj Agenda [p-pr q-pr])
+                      :index (conj index [p-pr q-pr])))))
+          result
+          delta-q)]
+    result))
+
+(defn process-cp-agenda
+  ([Agenda fsm1 fsm2 fst] (process-cp-agenda Agenda fsm1 fsm2 fst #{}))
+  ([Agenda fsm1 fsm2 fst index]
+   (let [ag-item (first Agenda)
+         [p q] ag-item
+         delta-p (filter (fn [[st-i & oth]] (= st-i p)) (:delta fsm1))
+         delta-q (filter (fn [[st-i & oth]] (= st-i q)) (:delta fsm2))
+         result (process-cp-transitions fst ag-item (rest Agenda) index delta-p
+                                        delta-q)
+
+         debug (println "in process-cp-agenda, result after process-pc-transitions:")
+         debug (pprint result)
+
+         result (add-insertion-transitions p (:F fsm1) delta-q result)
+
+         debug (println "in process-cp-agenda, result after add-insertion-transitions")
+         debug (pprint result)
+
+         result (add-elision-transitions q (:F fsm2) delta-p result)
+
+         debug (println "in process-cp-agenda, result after add-elision-transitions")
+         debug (pprint result)
+
+         ]
+     (if (empty? (:Agenda result))
+       (:fst3 result)
+       (recur (:Agenda result) fsm1 fsm2 (:fst3 result) (:index result))))))
+
+(defn cross-product
+  "Takes two FSMs, FSM1 encoding L1 and FSM2 encoding L2, and returns a
+  transducer encoding all the mappings (w1, w2) where w1 ∈ L1 and w2 ∈ L2."
+  [fsm1 fsm2]
+  (let [[fsm1 fsm2] (merge-alphabets fsm1 fsm2)
+        fsm2 (remove-state-conflicts fsm2 fsm1)
+        fsm1 (fst->fsa fsm1)
+        fsm2 (fst->fsa fsm2)
+        s0 (:s0 fsm1)
+        t0 (:s0 fsm2)
+        F1 (:F fsm1)
+        F2 (:F fsm2)
+        Agenda #{[s0 t0]}
+        fst {:sigma (union (:sigma fsm1) (:sigma fsm2))
+             :Q #{[s0 t0]}
+             :s0 [s0 t0]
+             :F #{}
+             :delta #{}}
+        fst (process-cp-agenda Agenda fsm1 fsm2 fst)
+        result (subset-construction
+                 (remove-dead-states
+                   (state-pairs->states
+                     (assoc fst :F
+                            (set (filter
+                                   (fn [state] (state-final? state F1 F2
+                                                             :intersection))
+                                   (:Q fst)))))))
+        result-is-cyclic (is-cyclic result)
+        min-result (minimize-hcc result)
+        min-result-is-cyclic (is-cyclic min-result)]
+    (if (= result-is-cyclic min-result-is-cyclic) result result)))
 
 ;; Reversal
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -510,93 +769,6 @@
            :F new-final
            :delta (reverse-delta (:delta fst)))))
 
-;; Cyclicity
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defn get-leaves
-  "Get all leaves in the FST."
-  [fst]
-  (filter
-    (fn [state]
-      (let [outgoing-transitions
-            (filter
-              (fn [[st-i _ st-o __]] (= state st-i))
-              (:delta fst))]
-        (if (= (count outgoing-transitions) 0) true false)))
-    (:Q fst)))
-
-(defn remove-leaf
-  "Remove state `leaf` from `fst`."
-  [fst leaf]
-  (let [new-Q (difference (:Q fst) #{leaf})
-        new-delta (filter (fn [[_ __ st-o ___]] (not= leaf st-o)) (:delta fst))]
-    (assoc fst :Q new-Q :delta new-delta)))
-
-(defn is-cyclic
-  "Return true if the FST is cyclic."
-  [fst]
-  (if (= 0 (count (:delta fst)))
-    false
-    (let [leaves (get-leaves fst)]
-      (if (= 0 (count leaves))
-        true
-        (recur (remove-leaf fst (first leaves)))))))
-
-(defn get-out-arcs
-  "Return a hashmap mapping all states reachable from `state` to the number of
-  arcs (transitions) between `state` and the reachable state."
-  [state fst]
-  (reduce
-    (fn [container [st-i _ st-o __]]
-      (if (= state st-i)
-        (assoc container st-o (inc (get container st-o 0)))
-        container))
-    {}
-    (:delta fst)))
-
-(defn count-to-final-arcs
-  "Return a count of the number of arcs in `out-arcs` that lead to the final
-  state `final`."
-  [out-arcs final]
-  (reduce +
-          (map
-            (fn [[st arc-count]]
-              (if (= st final) arc-count 0))
-            out-arcs)))
-
-(defn count-path-start-final
-  "Return the number of paths between start state `start` and final state
-  `final`. `factor` is a multiplicative factor indicating how many paths there
-  are to our present `start` state."
-  ([start final fst] (count-path-start-final start final fst 1))
-  ([start final fst factor]
-   (let [out-arcs (get-out-arcs start fst)
-         final-count (* factor (count-to-final-arcs out-arcs final))
-         non-final-out-arcs
-         (filter (fn [[dest-state arc-count]]
-                   (not= final dest-state)) out-arcs)]
-     (+ final-count
-        (reduce
-          +
-          (map
-            (fn [[dest-state arc-count]]
-              (count-path-start-final
-                dest-state final fst (* factor arc-count)))
-            non-final-out-arcs))))))
-
-(defn count-paths
-  "Return the number of paths in the acyclic `fst`. A path is a sequence of
-  arcs between a start state and an end state.
-  - start with start state as agenda
-  - count all transitions from 
-  "
-  [fst]
-  (reduce
-    +
-    (map
-      (fn [[start final]] (count-path-start-final start final fst))
-      (cart [#{(:s0 fst)} (:F fst)]))))
-
 
 ;; Complement
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -637,15 +809,24 @@
    :F #{:s0}
    :delta #{[:s0 epsilon-symbol :s0 unknown-symbol]}})
 
+(def all-transduction-paths
+  (kleene-star-repeat
+    (union-pc
+      epsilon-Sigma
+      (union-pc Sigma-Sigma Sigma-epsilon))))
+
 (defn path-complement
   "Return the path complement of `fst`, i.e., the set of regular relations
   *not* in `fst`."
   [fst]
-  true)
+  (subtraction-pc all-transduction-paths fst))
 
 
 ;; General Regex Evaluation
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; TODO
+;; - use tree-seq to evaluate the tree here.
 
 (defn eval-fst
   "Evaluate the regular expression `regex` to an FST. This means evaluating the
@@ -662,6 +843,10 @@
     (concatenate (map #(eval-fst {} %) (rest regex)))
     (= :union (first regex))
     (apply union-pc (map #(eval-fst {} %) (rest regex)))
+    (= :intersection (first regex))
+    (apply intersection-pc (map #(eval-fst {} %) (rest regex)))
+    (= :complement (first regex))
+    (path-complement (eval-fst {} (second regex)))
     (= :kleene-star-repetition (first regex))
     (kleene-star-repeat (eval-fst {} (second regex)))))
 

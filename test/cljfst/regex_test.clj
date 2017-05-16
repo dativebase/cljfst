@@ -4,7 +4,8 @@
             [cljfst.regex :refer :all]
             [cljfst.determinize :refer [subset-construction]]
             [cljfst.apply :refer [apply-down]]
-            [cljfst.iface :refer [parse-att]]
+            [cljfst.iface :refer [parse-att
+                                  print-net]]
             [cljfst.fixtures :refer :all]
             [cljfst.common :refer [unknown-symbol
                                    identity-symbol
@@ -319,7 +320,7 @@
   (testing "The FST mapping the empty string to any symbol, i.e.,
            (epsilon:Sigma)."
     (let [fst epsilon-Sigma]
-      (pprint fst)
+      ;; (pprint fst)
       ;; WARNING: apply-down on this FST will cause a StackOverflowError.
       ;; (pprint (apply-down fst ""))
       ;; (pprint (apply-down fst "cad"))
@@ -354,3 +355,59 @@
           fst (parse-to-fst parse)]
       (is (= false (is-cyclic fst)))
       (is (= 3 (count-paths fst))))))
+
+(deftest test-path-complement
+  (testing "If `path-complement` behaves correctly"
+    (let [regex-cmd "[a:b c:d] ;"
+          parse (read-regex regex-cmd)
+          fst (parse-to-fst parse)]
+      ;; (pprint parse)
+      ;; (pprint fst)
+      ;; (println "apply-down 'ac' with '[a:b c:d]'")
+      ;; (println (apply-down fst "ac"))
+      (is (= "bd" (first (apply-down fst "ac")))))
+    (let [regex-cmd "~[a:b c:d] ;"
+          parse (read-regex regex-cmd)
+          fst (parse-to-fst parse)]
+      ;; (pprint parse)
+      ;; (pprint fst)
+      ;; (print-net fst)
+      ;; (println "apply-down 'ac' with '~[a:b c:d]'")
+      ;; (println (apply-down fst "ac"))
+      ;; WARNING: foma returns "???" for "down ac" with the above FST. That
+      ;; seems like the complement of the FSA "ac", not the path complement of
+      ;; the FST [a:b c:d]
+      (is (= nil (some #{"bd"} (apply-down fst "ac")))))))
+
+(deftest test-fst->fsa
+  (testing "We can get an FSA from an FST."
+    (let [regex-cmd "a:b c:d ;"
+          parse (read-regex regex-cmd)
+          fst (parse-to-fst parse)
+          fsa (fst->fsa fst)
+          fsa-low (fst->fsa fst :lower)]
+      (is (= "bd" (first (apply-down fst "ac"))))
+      (is (= nil (first (apply-down fst "bd"))))
+      (is (= "ac" (first (apply-down fsa "ac"))))
+      (is (= nil (first (apply-down fsa "bd"))))
+      (is (= "bd" (first (apply-down fsa-low "bd"))))
+      (is (= nil (first (apply-down fsa-low "ac")))))))
+
+(deftest test-cross-product
+  (testing "Cross-product can take two FSTs/FSAs and return a new FST."
+    (let [regex-cmd "a|b ;"
+          parse (read-regex regex-cmd)
+          fst (parse-to-fst parse)
+          fsa1 (fst->fsa fst)
+          regex-cmd "x|y ;"
+          parse (read-regex regex-cmd)
+          fst (parse-to-fst parse)
+          fsa2 (fst->fsa fst)
+          fst (cross-product fsa1 fsa2)]
+      (println "FSA1")
+      (pprint fsa1)
+      (println "FSA2")
+      (pprint fsa2)
+      (pprint fst)
+      )))
+
