@@ -54,8 +54,17 @@ To run the tests from the command-line::
 
     $ lein test
 
+If you have `lein-test-refresh`_ installed, you can use it to have the tests run
+as you change the code::
+
+    $ lein test-refresh
+
+
 
 Installation
 ===============================================================================
 
 To do.
+
+
+.. _`lein-test-refresh`: https://github.com/jakemcc/lein-test-refresh

@@ -404,10 +404,10 @@
           fst (parse-to-fst parse)
           fsa2 (fst->fsa fst)
           fst (cross-product fsa1 fsa2)]
-      (println "FSA1")
-      (pprint fsa1)
-      (println "FSA2")
-      (pprint fsa2)
-      (pprint fst)
+      ;; (println "FSA1")
+      ;; (pprint fsa1)
+      ;; (println "FSA2")
+      ;; (pprint fsa2)
+      ;; (pprint fst)
       )))
 

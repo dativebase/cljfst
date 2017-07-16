@@ -323,13 +323,14 @@
   (let [parse (read-regex val)
         fst (parse-to-fst parse)
         determinized-fst (subset-construction fst)]
+    (println parse)
     (print-fst-stats fst)
     (add-to-stack fst)))
 
 (defn unknown-input
   "User has entered an unknown command."
   ([] (println "Yeah, um, sorry. What?"))
-  ([input] (println (str "Yeah, um, sorry. What does " input " mean?"))))
+  ([input] (println (str "Yeah, um, sorry. What does '" input "' mean?"))))
 
 (defn apply-down-top-fst
   "Return the result of performing apply-down on the top FST on the stack."
@@ -346,15 +347,17 @@
   (string/trim (string/replace-first input prefix "")))
 
 (defn parse-user-input
-  "Parse user input at the command line and respond to it."
+  "Parse user input at the cljfst REPL and respond to it."
   [input]
   (cond
     (string/starts-with? input "clear") (clear-stack)
-    (string/starts-with? input "down") (apply-down-top-fst (remove-cmd-prefix input "down"))
+    (string/starts-with? input "down")
+    (apply-down-top-fst (remove-cmd-prefix input "down"))
     (string/starts-with? input "net") (print-net)
     (string/starts-with? input "pop") (pop-stack)
     (string/starts-with? input "quit") (exit 0 "Goodbye.")
-    (string/starts-with? input "regex") (regex->stack (remove-cmd-prefix input "regex"))
+    (string/starts-with? input "regex")
+    (regex->stack (remove-cmd-prefix input "regex"))
     :else (unknown-input input)))
 
 (defn print-prompt
@@ -362,9 +365,15 @@
   []
   (print (str "cljfst[" (count @cmd-stack) "]: ")))
 
+
 (defn get-input
-  "Display cljfst[0]: prompt and wait for the user to enter commands and hit
-  enter."
+  "Display the 'cljfst[0]:' prompt, wait for the user to enter a command and
+  hit enter, and then execute that command. Keep doing this until the user
+  types 'quit' or Ctrl+D.
+  Note that `(read-line)` does not handle up arrow keys, etc. It may be
+  necessary to use something like java.io.BufferedReader. See
+  https://stackoverflow.com/questions/1114690/how-to-get-user-input-in-clojure
+  See https://github.com/clojure-cookbook/clojure-cookbook/blob/master/04_local-io/4-02_read-unbuffered-keystroke.asciidoc"
   []
   (let [input
         (do
@@ -380,12 +389,14 @@
         (get-input)))))
 
 (defn cljfst-cli
+  "Parse options and arguments using `parse-opts` from clojure.tools.cli.
+  Available options specified in `cli-options`."
   [args]
   (let [{:keys [options arguments errors summary]}
         (parse-opts args cli-options)]
     (cond
       (:help options) (exit 0 (usage summary))
-      (:version options) (exit 0 "Clojure FST has version yet.")
+      (:version options) (exit 0 "Clojure FST has no version yet.")
       (not= (count arguments) 0) (exit 1 (usage summary))
       errors (exit 1 (error-msg errors)))
     (get-input)))
