@@ -57,7 +57,7 @@ reserved-symbols = (
   "≻" )
 
 <reserved-symbol-re> = #"[!\"#$%&()*+,-./0:;<>?\[\\\]^_`{|}~¬¹×Σε⁻₁₂→↔∀∃∅∈∘∥∧∨∩∪≤≥≺≻]"
-<non-reserved-symbol-re> = #"[^!\"#$%&()*+,-./0:;<>?\[\\\]^_`{|}~¬¹×Σε⁻₁₂→↔∀∃∅∈∘∥∧∨∩∪≤≥≺≻]"
+<non-reserved-symbol-re> = #"[^!\"#$%&()*+,-./0:;<>?\[\\\]^_`{|}~¬¹×Σε⁻₁₂→↔∀∃∅∈∘∥∧∨∩∪≤≥≺≻ ]"
 <escaped-reserved-symbol-re> = <"%"> #"[!\"#$%&()*+,-./0:;<>?\[\\\]^_`{|}~¬¹×Σε⁻₁₂→↔∀∃∅∈∘∥∧∨∩∪≤≥≺≻]"
 
 regex-cmd = "regex"
@@ -99,6 +99,7 @@ right-optional-bracket = ")"
 atomic-symbol = <"\""> #"." <"\""> | non-reserved-symbol-re | escaped-reserved-symbol-re | <"\""> #"." <"\"">
 (* atomic-symbol = non-reserved-symbol-re | escaped-reserved-symbol-re *)
 (* multi-char-symbol = (non-reserved-symbol-re | escaped-reserved-symbol-re) (non-reserved-symbol-re | escaped-reserved-symbol-re)+ *)
+
 multi-char-symbol = (
   (((<"\""> #"." <"\"">) | non-reserved-symbol-re | escaped-reserved-symbol-re)
    ((<"\""> #"." <"\"">) | non-reserved-symbol-re | escaped-reserved-symbol-re)+) |
@@ -112,17 +113,18 @@ symbol = (
     identity-symbol
 )
 
+<any-space> = <#"\s*">
 concatenation = regex <concatenation-operator> regex
 union = regex <#"\s*"> <union-operator> <#"\s*"> regex
 intersection = regex <#"\s*"> <intersection-operator> <#"\s*"> regex
 complement = <complement-operator> <#"\s*"> regex
-<grouping> = left-grouping-bracket regex right-grouping-bracket
+<grouping> = left-grouping-bracket any-space regex any-space right-grouping-bracket
 mapping = symbol |
           symbol cross-product symbol |
           grouping cross-product grouping |
           regex cross-product regex
 kleene-star-repetition = regex <kleene-star>
-kleene-plus-repetition = regex kleene-plus
+kleene-plus-repetition = regex <kleene-plus>
 
 <regex> = symbol |
         grouping |

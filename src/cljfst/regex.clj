@@ -2,7 +2,7 @@
 ;; Clojure FST: Regex Parsing
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;; This module contains functionality for parsing (reading )input regex and
+;; This module contains functionality for parsing (reading) input regex and
 ;; rewrite rule expressions and converting (evaluating) them to FSTs.
 
 (ns cljfst.regex
@@ -673,18 +673,18 @@
          result (process-cp-transitions fst ag-item (rest Agenda) index delta-p
                                         delta-q)
 
-         debug (println "in process-cp-agenda, result after process-pc-transitions:")
-         debug (pprint result)
+         ;; debug (println "in process-cp-agenda, result after process-pc-transitions:")
+         ;; debug (pprint result)
 
          result (add-insertion-transitions p (:F fsm1) delta-q result)
 
-         debug (println "in process-cp-agenda, result after add-insertion-transitions")
-         debug (pprint result)
+         ;; debug (println "in process-cp-agenda, result after add-insertion-transitions")
+         ;; debug (pprint result)
 
          result (add-elision-transitions q (:F fsm2) delta-p result)
 
-         debug (println "in process-cp-agenda, result after add-elision-transitions")
-         debug (pprint result)
+         ;; debug (println "in process-cp-agenda, result after add-elision-transitions")
+         ;; debug (pprint result)
 
          ]
      (if (empty? (:Agenda result))

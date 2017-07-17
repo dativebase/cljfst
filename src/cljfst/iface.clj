@@ -323,7 +323,7 @@
   (let [parse (read-regex val)
         fst (parse-to-fst parse)
         determinized-fst (subset-construction fst)]
-    (println parse)
+    ;; (println parse)
     (print-fst-stats fst)
     (add-to-stack fst)))
 
