@@ -31,7 +31,8 @@
   "Determinize and then minimize `fst`. Each regex operator should call this
   function on its FST output prior to returning it."
   [fst]
-  (minimize-hcc (subset-construction fst)))
+  ;; (minimize-hcc (subset-construction fst)))
+  (-> fst subset-construction minimize-hcc))
 
 ;; Merge Alphabets-related functions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -58,8 +59,8 @@
     (set (concat diff unkn-n n-unkn))))
 
 (defn merge-alphabet
-  "Take an FST and a set of symbols not in its alphabet and merge those symbols
-  in to its delta transition."
+  "Take an FST `fst` and a set of symbols `N` not in its alphabet and merge
+  those symbols in to its delta transition."
   [fst N]
   (let [delta
         (reduce
